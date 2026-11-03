@@ -1,11 +1,16 @@
 import math, random, time
 
+# 생육 단계: (이름, 시작 생장도). 마지막 단계에 도달하면 수확할 수 있다.
+LEAFY_STAGES = (("발아", 0), ("유묘", 10), ("생장", 35), ("수확기", 100))
+FRUIT_STAGES = (("발아", 0), ("유묘", 10), ("영양생장", 30), ("개화", 55), ("결실", 75), ("수확기", 100))
+
 
 class PlantProfile:
     """작물별 적정 생육 조건"""
     def __init__(self, species: str, temperature_range: tuple, min_luminosity: float,
                  soil_humidity_range: tuple, humidity_range: tuple = (60, 80),
-                 nutrient_range: tuple = (1.0, 2.0), co2_range: tuple = (300, 1200)):
+                 nutrient_range: tuple = (1.0, 2.0), co2_range: tuple = (300, 1200),
+                 grow_days: float = 8, yield_kg: float = 5.0, stages: tuple = LEAFY_STAGES):
         self.species = species
         self.temperature_range = temperature_range      # °C
         self.min_luminosity = min_luminosity            # lux
@@ -13,6 +18,12 @@ class PlantProfile:
         self.humidity_range = humidity_range            # %RH
         self.nutrient_range = nutrient_range            # 양액 EC (mS/cm)
         self.co2_range = co2_range                      # ppm
+        self.grow_days = grow_days                      # 조건이 좋을 때 파종부터 수확까지 (일)
+        self.yield_kg = yield_kg                        # 건강도 100으로 키웠을 때 구역 수확량
+        self.stages = stages
+
+    def stage(self, growth: float) -> str:
+        return [name for name, start in self.stages if growth >= start][-1]
 
 
 class Weather:
@@ -97,17 +108,38 @@ class EnvState:
 
 
 class PlantState:
-    def __init__(self, alive: bool, pests: bool, health: float = 100.0, growth: float = 0.0):
+    OVERRIPE_STRESS = 0.3   # 수확기를 넘기면 조금씩 상한다
+
+    def __init__(self, alive: bool = True, pests: bool = False, health: float = 100.0, growth: float = 0.0):
         self.alive = alive
         self.pests = pests
         self.health = health    # 0이 되면 고사
         self.growth = growth    # 수확까지 0~100
+        self.age_hours = 0.0    # 파종 후 경과 시간
+        self.health_hours = 0.0 # 건강도 × 시간 누적 (평균 건강도 = 품질)
+
+    @property
+    def ready(self):
+        return self.alive and self.growth >= 100
+
+    @property
+    def avg_health(self):
+        return self.health_hours / self.age_hours if self.age_hours else self.health
+
+    def hours_to_harvest(self):
+        """지금까지의 평균 생장 속도로 본 남은 시간. 아직 모르면 None"""
+        if self.growth >= 100:
+            return 0.0
+        if self.growth <= 0 or self.age_hours < 1:
+            return None
+        return (100 - self.growth) / (self.growth / self.age_hours)
 
     def update(self, env: EnvState, dt: float):
         if not self.alive:
             return
         p = env.plant_profile
-        stress = 0.0
+        self.age_hours += dt
+        stress = self.OVERRIPE_STRESS if self.ready else 0.0
         stress += _out_of(env.temperature, p.temperature_range) / 3
         stress += _out_of(env.humidity, p.humidity_range) / 15
         stress += _out_of(env.soil_humidity, p.soil_humidity_range) / 10
@@ -120,8 +152,11 @@ class PlantState:
             self.health = 0
             self.alive = False
             return
+        self.health_hours += self.health * dt
+        # 하루 16시간 빛을 받는다고 보고 grow_days 만에 다 자라도록
         light = min(1.0, env.luminosity / p.min_luminosity)
-        self.growth = min(100.0, self.growth + 0.4 * light * (self.health / 100) * dt)
+        rate = 100 / (p.grow_days * 16)
+        self.growth = min(100.0, self.growth + rate * light * (self.health / 100) * dt)
 
         # 덥고 습하면 병충해가 잘 생긴다
         rate = 0.003 + (0.03 if env.humidity > 85 and env.temperature > 22 else 0)
@@ -135,17 +170,71 @@ def _out_of(value, rng):
 
 
 class FarmSection:
-    QUARANTINE_CURE_RATE = 0.25   # 격리·방제 중 시간당 병충해 제거 확률
+    PEST_CONTROL_RATE = 0.25      # 격리 중 시간당 방제 시도 확률
+    PEST_CONTROL_SUCCESS = 0.7    # 방제 한 번이 성공할 확률
+    PLOW_HINT_FAILURES = 3        # 이만큼 연속 실패하면 갈아엎기를 권한다
 
     def __init__(self, env_state: EnvState, plant_state: PlantState, is_closed: bool, name: str = ""):
         self.env_state = env_state
-        self.plant_state = plant_state
+        self.plant_state = plant_state    # 빈 구역이면 None
         self.is_closed = is_closed
         self.devices = Devices()
-        self.name = name or env_state.plant_profile.species
+        self.name = name
+        self.control_failures = 0         # 이번 병충해에 대한 연속 방제 실패 횟수
+
+    @property
+    def label(self):
+        crop = self.env_state.plant_profile.species if self.plant_state else "빈 구역"
+        return f"{self.name} {crop}" if self.name else crop
 
     def log(self, msg):
-        print(f"[{self.name}] {msg}")
+        print(f"[{self.label}] {msg}")
+
+    def plant(self, profile: PlantProfile) -> bool:
+        """빈 구역에 작물을 심는다. 작물이 남아 있으면 심지 않는다."""
+        if self.plant_state:
+            self.log("작물이 남아 있어 심을 수 없습니다. 먼저 수확하거나 정리하세요.")
+            return False
+        self.env_state.plant_profile = profile
+        self._clear()
+        self.plant_state = PlantState()
+        self.log(f"파종 (예상 {profile.grow_days:g}일 후 수확)")
+        return True
+
+    def _clear(self):
+        self.plant_state = None
+        self.is_closed = False
+        self.control_failures = 0
+
+    def plow(self) -> bool:
+        """자라는 중이든 병들었든 작물을 모두 갈아엎어 빈 구역으로 만든다. 수확량은 없다."""
+        plant, p = self.plant_state, self.env_state.plant_profile
+        if plant is None:
+            self.log("갈아엎을 작물이 없습니다.")
+            return False
+        state = "고사" if not plant.alive else f"{p.stage(plant.growth)} {plant.growth:.0f}%"
+        self.log(f"밭을 갈아엎었습니다 ({state}" + (", 병충해 제거" if plant.pests else "") + ").")
+        self._clear()
+        return True
+
+    def harvest(self):
+        """다 자랐으면 수확해서 (작물, 수확량 kg, 품질 %)를 돌려준다. 고사한 작물은 정리만 한다."""
+        plant, p = self.plant_state, self.env_state.plant_profile
+        if plant is None:
+            self.log("수확할 작물이 없습니다.")
+            return None
+        if not plant.alive:
+            self.log("고사한 작물을 정리했습니다.")
+            self._clear()
+            return None
+        if not plant.ready:
+            self.log(f"아직 수확할 수 없습니다 ({p.stage(plant.growth)}, 생장 {plant.growth:.0f}%).")
+            return None
+        quality = plant.avg_health
+        kg = p.yield_kg * quality / 100
+        self.log(f"수확 {kg:.1f}kg (품질 {quality:.0f}%, 재배 {plant.age_hours / 24:.1f}일)")
+        self._clear()
+        return p.species, kg, quality
 
     def switch(self, device: str, on: bool, reason: str):
         if getattr(self.devices, device) != on:
@@ -159,29 +248,40 @@ class FarmSection:
         env, plant, dev, p = self.env_state, self.plant_state, self.devices, self.env_state.plant_profile
         weather = weather or Weather()
 
-        was_alive = plant.alive
-        env.update(weather, dev, plant.alive, self.is_closed, dt)
-        plant.update(env, dt)
+        was_alive = bool(plant and plant.alive)
+        env.update(weather, dev, was_alive, self.is_closed, dt)
+        if plant:
+            stage = p.stage(plant.growth)
+            plant.update(env, dt)
+            if plant.alive and p.stage(plant.growth) != stage:
+                self.log(f"생육 단계 {stage} → {p.stage(plant.growth)}" + (" · 수확 가능" if plant.ready else ""))
         dev.total_energy_kwh += dev.power_kw() * dt
         dev.water_l = dev.fertilizer_g = 0.0
 
-        if not plant.alive:
+        # 빈 구역이거나 고사했으면 장치를 모두 끈다
+        if not (plant and plant.alive):
             if was_alive:
                 self.log("식물이 죽었습니다.")
-                for d in ("heater", "cooler", "fan", "humidifier", "dehumidifier"):
-                    setattr(dev, d, False)
-                dev.light = 0.0
+            for d in ("heater", "cooler", "fan", "humidifier", "dehumidifier"):
+                setattr(dev, d, False)
+            dev.light = 0.0
             return
 
-        # 병충해: 구역 차폐 후 방제, 사라지면 개방
+        # 병충해: 구역 차폐 후 방제(일정 확률로 실패), 사라지면 개방
         if plant.pests and not self.is_closed:
             self.log("병충해 발생이 감지되어 구역을 격리합니다.")
             self.is_closed = True
-        elif self.is_closed and plant.pests and random.random() < self.QUARANTINE_CURE_RATE * dt:
-            plant.pests = False
+        elif self.is_closed and plant.pests and random.random() < self.PEST_CONTROL_RATE * dt:
+            if random.random() < self.PEST_CONTROL_SUCCESS:
+                plant.pests = False
+            else:
+                self.control_failures += 1
+                hint = " 갈아엎기를 고려하세요." if self.control_failures >= self.PLOW_HINT_FAILURES else ""
+                self.log(f"방제 실패 ({self.control_failures}회째), 격리를 유지하고 다시 방제합니다.{hint}")
         if self.is_closed and not plant.pests:
             self.log("방제 완료, 구역 격리를 해제합니다.")
             self.is_closed = False
+            self.control_failures = 0
 
         # 냉난방 (1°C 히스테리시스)
         t_lo, t_hi = p.temperature_range
@@ -249,6 +349,7 @@ class Farm:
         self.sections = sections
         self.hours = start_hour      # 시뮬레이션 시작부터 흐른 시간
         self.weather = weather or Weather()
+        self.harvests = []           # (일차, 구역 이름, 작물, kg, 품질 %)
 
     @property
     def hour(self):
@@ -258,6 +359,12 @@ class Farm:
     def day(self):
         return int(self.hours // 24) + 1
 
+    def harvest(self, section: FarmSection):
+        result = section.harvest()
+        if result:
+            self.harvests.append((self.day, section.name, *result))
+        return result
+
     def process(self, dt: float = 1 / 6):
         self.hours += dt
         self.weather.update(self.hour, dt)
@@ -266,13 +373,17 @@ class Farm:
 
 
 if __name__ == "__main__":
-    lettuce = PlantProfile("상추", (15, 22), 15000, (55, 75), humidity_range=(60, 80), nutrient_range=(1.0, 1.6))
+    lettuce = PlantProfile("상추", (15, 22), 15000, (55, 75), humidity_range=(60, 80), nutrient_range=(1.0, 1.6),
+                           grow_days=6, yield_kg=4.0)
     section1 = FarmSection(EnvState(lettuce, 17, 47, 600, 30, 30000), PlantState(True, False), False)
     farm = Farm([section1])
     while True:
         time.sleep(0.1)
         farm.process()      # 한 번에 10분 진행
-        e = section1.env_state
+        if not (section1.plant_state.alive and not section1.plant_state.ready):
+            farm.harvest(section1)      # 다 자랐거나 죽었으면 수확·정리하고 다시 심는다
+            section1.plant(lettuce)
+        e, plant = section1.env_state, section1.plant_state
         print(f"  Day{farm.day} {farm.hour:05.2f}h  {e.temperature:5.1f}°C  {e.humidity:4.0f}%  "
               f"토양 {e.soil_humidity:4.0f}%  EC {e.nutrient:.2f}  {e.luminosity:7,.0f}lux  "
-              f"건강 {section1.plant_state.health:5.1f}")
+              f"건강 {plant.health:5.1f}  {lettuce.stage(plant.growth)} {plant.growth:3.0f}%")
