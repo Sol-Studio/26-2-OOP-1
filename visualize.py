@@ -6,6 +6,9 @@ from tkinter import ttk, messagebox
 from common import DT, HISTORY, FONT, COLOR, PROFILES, CHARTS, ZONES, make_profile, make_farm
 from simulator_window import SimulatorWindow
 from mobile_window import MobileWindow
+from cctv_window import CctvWindow
+from cctv import draw_cctv
+from economics import section_money, totals, won
 
 
 class App:
@@ -30,6 +33,7 @@ class App:
         ttk.Button(bar2, text="🧺 수확 / 정리", command=self.harvest).pack(side="left")
         ttk.Button(bar2, text="수확 가능한 구역 모두 수확", command=self.harvest_all).pack(side="left", padx=4)
         ttk.Button(bar2, text="🚜 갈아엎기", command=self.plow).pack(side="left")
+        ttk.Button(bar2, text="📹 CCTV 전체", command=lambda: self.show(self.cctv)).pack(side="right")
         ttk.Button(bar2, text="⚙ 시뮬레이터 창", command=lambda: self.show(self.sim)).pack(side="right")
         ttk.Button(bar2, text="📱 모바일 앱", command=lambda: self.show(self.mobile)).pack(side="right", padx=4)
 
@@ -49,6 +53,7 @@ class App:
 
         self.sim = SimulatorWindow(self)
         self.mobile = MobileWindow(self)
+        self.cctv = CctvWindow(self)
         self.running = True
         self.reset()
         self.loop()
@@ -192,6 +197,7 @@ class App:
         self.draw_detail()
         self.sim.refresh()
         self.mobile.refresh()
+        self.cctv.refresh()
 
     def draw_header(self):
         c, f, w = self.canvas, self.farm, self.farm.weather
@@ -275,9 +281,10 @@ class App:
         c, log = self.canvas, self.farm.harvests
         x1, x2, y = 16, 560, 498
         total = sum(kg for *_, kg, _ in log)
+        cost, rev, profit = totals(self.farm.cycles)
         c.create_text(x1, y, anchor="w", text="수확 기록", font=(FONT, 11, "bold"), fill=COLOR["ink"])
         c.create_text(x2, y, anchor="e", font=(FONT, 9), fill=COLOR["muted"],
-                      text=f"총 {len(log)}회 · {total:.1f}kg")
+                      text=f"총 {len(log)}회 · {total:.1f}kg · 매출 {won(rev)} · 비용 {won(cost)} · 순이익 {profit:+,.0f}원")
         c.create_line(x1, y + 14, x2, y + 14, fill=COLOR["line"])
         if not log:
             c.create_text(x1, y + 32, anchor="w", font=(FONT, 9), fill=COLOR["muted"],
@@ -325,7 +332,7 @@ class App:
         self.draw_growth(s, ox, 82)
 
         hist = self.history[self.selected]
-        gw, gh, gx, gy = 290, 162, 18, 22
+        gw, gh, gx, gy = 290, 110, 18, 22
         for k, (title, _, (lo, hi), band, unit) in enumerate(CHARTS):
             col, row = k % 2, k // 2
             x1 = ox + col * (gw + gx)
@@ -359,8 +366,30 @@ class App:
             c.create_text(x2, y1 + 6, anchor="e", text=f"{val} {unit}", font=("Consolas", 9, "bold"),
                           fill=COLOR["ink"] if ok else COLOR["closed"])
 
-        c.create_text(ox, self.H - 2, anchor="sw", font=(FONT, 8), fill=COLOR["muted"],
+        c.create_text(ox, 543, anchor="w", font=(FONT, 8), fill=COLOR["muted"],
                       text="최근 24시간 · 초록 띠 = 적정 범위 · 회색 = 밤")
+        draw_cctv(c, ox, 556, gw, 150, s, self.farm, self.selected + 1)
+        self.draw_money(s, ox + gw + gx, 556, gw, 150)
+
+    def draw_money(self, s, x, y, w, h):
+        """선택한 구역의 이번 재배 비용·예상 수익과 농장 전체 정산"""
+        c = self.canvas
+        items, cost, expected = section_money(s)
+        c.create_rectangle(x, y, x + w, y + h, fill=COLOR["card"], outline=COLOR["line"])
+        c.create_text(x + 10, y + 14, anchor="w", text="이번 재배 비용", font=(FONT, 9, "bold"), fill=COLOR["ink"])
+        for k, (name, v) in enumerate(items):
+            c.create_text(x + 10, y + 34 + k * 15, anchor="w", text=name, font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x + w - 10, y + 34 + k * 15, anchor="e", text=won(v), font=("Consolas", 9), fill=COLOR["ink"])
+        c.create_line(x + 10, y + 94, x + w - 10, y + 94, fill=COLOR["line"])
+        c.create_text(x + 10, y + 106, anchor="w", text="합계", font=(FONT, 8), fill=COLOR["muted"])
+        c.create_text(x + w - 10, y + 106, anchor="e", text=won(cost), font=("Consolas", 9, "bold"), fill=COLOR["ink"])
+        if expected is None:
+            c.create_text(x + 10, y + 128, anchor="w", text="예상 수익 없음", font=(FONT, 8), fill=COLOR["muted"])
+        else:
+            net = expected - cost
+            c.create_text(x + 10, y + 124, anchor="w", text=f"예상 수익 {won(expected)}", font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x + w - 10, y + 124, anchor="e", text=f"순이익 {net:+,.0f}원",
+                          font=(FONT, 9, "bold"), fill=COLOR["healthy"] if net >= 0 else COLOR["closed"])
 
     def draw_growth(self, s, ox, y):
         """생육 단계 타임라인: 단계별 구간, 현재 생장도, 수확 예상"""

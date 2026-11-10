@@ -1,5 +1,7 @@
 import random
 import unittest
+
+import economics
 from types import SimpleNamespace
 
 from main import (PlantProfile, EnvState, PlantState, FarmSection, Farm, Weather, Device, OnOffDevice,
@@ -173,6 +175,83 @@ class SectionTest(unittest.TestCase):
         s.process(Weather(), 12.0, DT)
         self.assertTrue(s.is_closed)
         self.assertFalse(s.devices.fan)
+
+
+class EconomicsTest(unittest.TestCase):
+    def grown(self, quality=100.0):
+        s = FarmSection(ideal_env(), None, False)
+        s.plant(profile())
+        s.plant_state.growth = 100.0
+        s.plant_state.age_hours = 10
+        s.plant_state.health_hours = 10 * quality
+        return s
+
+    def test_cycle_cost_counts_only_usage_since_planting(self):
+        s = FarmSection(ideal_env(), None, False)
+        s.devices.by_key["irrigation"].total = 100        # 이전 재배에서 쓴 물
+        s.plant(profile())
+        s.devices.by_key["irrigation"].total = 130
+        self.assertAlmostEqual(s.cycle_usage()[1], 30)
+
+    def test_second_crop_does_not_inherit_first_cost(self):
+        s = self.grown()
+        s.devices.by_key["fertilizer"].total = 50
+        s.harvest()
+        self.assertAlmostEqual(s.cycles[0]["fertilizer_g"], 50)
+        s.plant(profile())
+        self.assertEqual(s.cycle_usage(), (0, 0, 0))
+
+    def test_harvest_revenue_depends_on_quality(self):
+        high, low = self.grown(95), self.grown(50)
+        high.harvest(), low.harvest()
+        r_high, r_low = (economics.cycle_result(s.cycles[0])[1] / s.cycles[0]["kg"] for s in (high, low))
+        self.assertGreater(r_high, r_low)
+
+    def test_plow_and_dead_plant_are_losses(self):
+        plowed = self.grown()
+        plowed.plow()
+        dead = self.grown()
+        dead.plant_state.alive = False
+        dead.harvest()
+        for s in (plowed, dead):
+            cost, rev, profit = economics.cycle_result(s.cycles[0])
+            self.assertEqual(rev, 0)
+            self.assertLess(profit, 0)
+
+    def test_farm_totals_sum_all_sections(self):
+        a, b = self.grown(), self.grown()
+        a.harvest(), b.plow()
+        farm = Farm([a, b])
+        cost, rev, profit = economics.totals(farm.cycles)
+        self.assertAlmostEqual(profit, rev - cost)
+        self.assertEqual(len(farm.cycles), 2)
+
+
+class CctvTest(unittest.TestCase):
+    def test_draws_every_section_state_without_error(self):
+        import tkinter as tk
+        from cctv import draw_cctv
+        from common import make_farm
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("화면을 쓸 수 없는 환경")
+        self.addCleanup(root.destroy)
+        farm = make_farm()
+        c = tk.Canvas(root, width=300, height=200)
+        s = farm.sections[1]
+        cases = [lambda: None,
+                 lambda: setattr(s.plant_state, "growth", 5.0),
+                 lambda: (setattr(s.plant_state, "growth", 90.0), setattr(s.plant_state, "pests", True)),
+                 lambda: setattr(s, "is_closed", True),
+                 lambda: setattr(s.plant_state, "alive", False),
+                 lambda: setattr(s, "plant_state", None)]
+        for case in cases:
+            case()
+            for hour in (3.0, 12.0):
+                farm.hours = hour
+                for compact in (False, True):
+                    draw_cctv(c, 0, 0, 300, 200, s, farm, 2, compact=compact)
 
 
 if __name__ == "__main__":

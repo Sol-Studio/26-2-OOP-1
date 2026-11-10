@@ -489,6 +489,8 @@ class FarmSection:
         self.sensors = SensorPanel()
         self.name = name
         self.control_failures = 0         # 이번 병충해에 대한 연속 방제 실패 횟수
+        self.base_usage = (0.0, 0.0, 0.0)  # 이번 재배를 시작할 때의 누적 (전력 kWh, 물 L, 비료 g)
+        self.cycles = []                  # 끝난 재배 기록 (비용·수익 계산용)
 
     @property
     def label(self):
@@ -505,9 +507,26 @@ class FarmSection:
             return False
         self.env_state.plant_profile = profile
         self._clear()
+        self.base_usage = self._total_usage()
         self.plant_state = PlantState()
         self.log(f"파종 (예상 {profile.grow_days:g}일 후 수확)")
         return True
+
+    def _total_usage(self):
+        d = self.devices
+        return (d.total_energy_kwh, d.total_water_l, d.total_fertilizer_g)
+
+    def cycle_usage(self):
+        """이번 재배에 쓴 (전력 kWh, 물 L, 비료 g)"""
+        return tuple(now - base for now, base in zip(self._total_usage(), self.base_usage))
+
+    def _close(self, outcome: str, kg: float = 0.0, quality: float = 0.0):
+        """재배를 끝내며 사용량과 결과를 기록하고 구역을 비운다."""
+        kwh, water, fert = self.cycle_usage()
+        self.cycles.append(dict(species=self.env_state.plant_profile.species, outcome=outcome, kg=kg,
+                                quality=quality, kwh=kwh, water_l=water, fertilizer_g=fert,
+                                days=self.plant_state.age_hours / 24))
+        self._clear()
 
     def _clear(self):
         self.plant_state = None
@@ -522,7 +541,7 @@ class FarmSection:
             return False
         state = "고사" if not plant.alive else f"{p.stage(plant.growth)} {plant.growth:.0f}%"
         self.log(f"밭을 갈아엎었습니다 ({state}" + (", 병충해 제거" if plant.pests else "") + ").")
-        self._clear()
+        self._close("갈아엎음")
         return True
 
     def harvest(self):
@@ -533,7 +552,7 @@ class FarmSection:
             return None
         if not plant.alive:
             self.log("고사한 작물을 정리했습니다.")
-            self._clear()
+            self._close("고사")
             return None
         if not plant.ready:
             self.log(f"아직 수확할 수 없습니다 ({p.stage(plant.growth)}, 생장 {plant.growth:.0f}%).")
@@ -541,7 +560,7 @@ class FarmSection:
         quality = plant.avg_health
         kg = p.yield_kg * quality / 100
         self.log(f"수확 {kg:.1f}kg (품질 {quality:.0f}%, 재배 {plant.age_hours / 24:.1f}일)")
-        self._clear()
+        self._close("수확", kg, quality)
         return p.species, kg, quality
 
     def process(self, weather: Weather = None, hour: float = 12.0, dt: float = 1 / 6):
@@ -610,6 +629,11 @@ class Farm:
         self.hours = start_hour      # 시뮬레이션 시작부터 흐른 시간
         self.weather = weather or Weather()
         self.harvests = []           # (일차, 구역 이름, 작물, kg, 품질 %)
+
+    @property
+    def cycles(self):
+        """모든 구역의 끝난 재배 기록"""
+        return [c for s in self.sections for c in s.cycles]
 
     @property
     def hour(self):

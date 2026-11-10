@@ -1,13 +1,15 @@
 import tkinter as tk
 
 from common import COLOR, FONT, CHARTS
+from cctv import draw_cctv
+from economics import section_money, totals, won
 
 
 class MobileWindow(tk.Toplevel):
-    """농장주가 휴대폰으로 보는 앱 화면(9:16). 홈 / 구역 상세 / 알림 세 탭을 오간다."""
+    """농장주가 휴대폰으로 보는 앱 화면(9:16). 홈 / CCTV / 구역 상세 / 알림 네 탭을 오간다."""
     W, H = 360, 640
     BAR, NAV = 26, 56          # 위 상태 표시줄, 아래 탭 바 높이
-    TABS = [("home", "홈"), ("zone", "구역"), ("alerts", "알림")]
+    TABS = [("home", "홈"), ("cctv", "CCTV"), ("zone", "구역"), ("alerts", "알림")]
 
     def __init__(self, app):
         super().__init__(app.root, bg="#111814")
@@ -53,7 +55,7 @@ class MobileWindow(tk.Toplevel):
         self.canvas.delete("all")
         self.buttons = []
         self.draw_status_bar()
-        {"home": self.draw_home, "zone": self.draw_zone, "alerts": self.draw_alerts}[self.tab]()
+        {"home": self.draw_home, "cctv": self.draw_cctv, "zone": self.draw_zone, "alerts": self.draw_alerts}[self.tab]()
         self.draw_nav()
 
     def draw_status_bar(self):
@@ -108,7 +110,17 @@ class MobileWindow(tk.Toplevel):
             c.create_rectangle(x1, y, x1 + cw, y + 50, fill=COLOR["card"], outline=COLOR["line"])
             c.create_text(x1 + 10, y + 16, anchor="w", text=name, font=(FONT, 8), fill=COLOR["muted"])
             c.create_text(x1 + 10, y + 36, anchor="w", text=str(n), font=(FONT, 14, "bold"), fill=col)
-        y += 62
+        y += 58
+
+        # 정산 요약: 끝난 재배(수확·갈아엎기·고사) 기준
+        cost, rev, profit = totals(f.cycles)
+        c.create_rectangle(16, y, self.W - 16, y + 44, fill=COLOR["card"], outline=COLOR["line"])
+        for k, (name, v, col) in enumerate([("매출", rev, COLOR["ink"]), ("비용", cost, COLOR["ink"]),
+                                            ("순이익", profit, COLOR["healthy"] if profit >= 0 else COLOR["closed"])]):
+            x1 = 26 + k * (self.W - 32) / 3
+            c.create_text(x1, y + 13, anchor="w", text=name, font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x1, y + 31, anchor="w", text=won(v), font=(FONT, 10, "bold"), fill=col)
+        y += 52
 
         # 구역 목록: 누르면 구역 탭으로
         ch = (self.H - self.NAV - 10 - y) / len(f.sections)
@@ -129,6 +141,51 @@ class MobileWindow(tk.Toplevel):
             else:
                 c.create_text(32, y2 - 12, anchor="w", text="비어 있음", font=(FONT, 8), fill=COLOR["muted"])
             self.button((16, y1, self.W - 16, y2), lambda i=i: self.open_zone(i))
+
+    def draw_cctv(self):
+        c, app = self.canvas, self.app
+        f = app.farm
+        y = self.header("CCTV", "구역을 누르면 크게 봅니다")
+        s = f.sections[app.selected]
+        label, col = app.status(s)
+        big_h = 196
+        draw_cctv(c, 16, y, self.W - 32, big_h, s, f, app.selected + 1)
+        c.create_text(18, y + big_h + 14, anchor="w", text=s.label, font=(FONT, 10, "bold"), fill=COLOR["ink"])
+        c.create_text(self.W - 18, y + big_h + 14, anchor="e", text=f"{label}  ›", font=(FONT, 9, "bold"), fill=col)
+        self.button((16, y + big_h, self.W - 16, y + big_h + 28), lambda: self.go("zone"))
+        y += big_h + 36
+        tw, th, gap = (self.W - 32 - 12) / 3, 78, 6
+        for i, sec in enumerate(f.sections):
+            x1, y1 = 16 + (i % 3) * (tw + 6), y + (i // 3) * (th + gap)
+            draw_cctv(c, x1, y1, tw, th, sec, f, i + 1, compact=True)
+            if i == app.selected:
+                c.create_rectangle(x1, y1, x1 + tw, y1 + th, outline=COLOR["plot"], width=3)
+            self.button((x1, y1, x1 + tw, y1 + th), lambda i=i: self.select_cam(i))
+
+    def select_cam(self, i):
+        self.app.select(i)
+
+    def draw_cost(self, s, y):
+        """구역 상세의 재배 비용·예상 수익 카드. 카드 아래 y를 돌려준다."""
+        c = self.canvas
+        items, cost, expected = section_money(s)
+        h = 78
+        c.create_rectangle(16, y, self.W - 16, y + h, fill=COLOR["card"], outline=COLOR["line"])
+        c.create_text(28, y + 14, anchor="w", text="이번 재배 비용", font=(FONT, 8), fill=COLOR["muted"])
+        c.create_text(28, y + 32, anchor="w", text=won(cost), font=(FONT, 11, "bold"), fill=COLOR["ink"])
+        if expected is None:
+            c.create_text(self.W - 28, y + 24, anchor="e", text="예상 수익 없음", font=(FONT, 9), fill=COLOR["muted"])
+        else:
+            c.create_text(self.W - 28, y + 14, anchor="e", text="예상 수익 · 순이익", font=(FONT, 8), fill=COLOR["muted"])
+            net = expected - cost
+            c.create_text(self.W - 28, y + 32, anchor="e", text=f"{won(expected)} · {net:+,.0f}원",
+                          font=(FONT, 9, "bold"), fill=COLOR["healthy"] if net >= 0 else COLOR["closed"])
+        cw = (self.W - 56) / 4
+        for k, (name, v) in enumerate(items):
+            x1 = 28 + k * cw
+            c.create_text(x1, y + 52, anchor="w", text=name, font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x1, y + 66, anchor="w", text=f"{v:,.0f}", font=("Consolas", 9), fill=COLOR["ink"])
+        return y + h + 8
 
     def draw_zone(self):
         c, app = self.canvas, self.app
@@ -156,19 +213,19 @@ class MobileWindow(tk.Toplevel):
         else:
             c.create_text(self.W / 2, y + 42, text="빈 구역입니다.\n관리 패널에서 작물을 심으세요.",
                           font=(FONT, 9), fill=COLOR["muted"], justify="center")
-        y += 96
+        y = self.draw_cost(s, y + 90)
 
         # 환경 값 2열 x 3줄 (적정 범위를 벗어나면 빨간색)
-        tw, th = (self.W - 32 - 8) / 2, 52
+        tw, th = (self.W - 32 - 8) / 2, 44
         for k, (title, get, (_, hi), band, unit) in enumerate(CHARTS):
             x1, y1 = 16 + (k % 2) * (tw + 8), y + (k // 2) * (th + 8)
             v, (b_lo, b_hi) = get(s), band(p)
             ok = b_lo <= v <= b_hi
             val = f"{v:,.0f}" if hi >= 1000 else (f"{v:.2f}" if hi < 10 else f"{v:.1f}")
             c.create_rectangle(x1, y1, x1 + tw, y1 + th, fill=COLOR["card"], outline=COLOR["line"])
-            c.create_text(x1 + 10, y1 + 14, anchor="w", text=title, font=(FONT, 8), fill=COLOR["muted"])
-            c.create_text(x1 + tw - 10, y1 + 14, anchor="e", text=unit, font=(FONT, 7), fill=COLOR["muted"])
-            c.create_text(x1 + 10, y1 + 36, anchor="w", text=val, font=("Consolas", 13, "bold"),
+            c.create_text(x1 + 10, y1 + 12, anchor="w", text=title, font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x1 + tw - 10, y1 + 12, anchor="e", text=unit, font=(FONT, 7), fill=COLOR["muted"])
+            c.create_text(x1 + 10, y1 + 30, anchor="w", text=val, font=("Consolas", 13, "bold"),
                           fill=COLOR["ink"] if ok else COLOR["closed"])
         y += 3 * (th + 8) + 4
 
