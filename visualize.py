@@ -7,6 +7,7 @@ from common import DT, HISTORY, FONT, COLOR, PROFILES, CHARTS, ZONES, make_profi
 from simulator_window import SimulatorWindow
 from mobile_window import MobileWindow
 from cctv_window import CctvWindow
+from price_window import PriceWindow
 from cctv import draw_cctv
 from economics import section_money, totals, won
 
@@ -33,6 +34,10 @@ class App:
         ttk.Button(bar2, text="🧺 수확 / 정리", command=self.harvest).pack(side="left")
         ttk.Button(bar2, text="수확 가능한 구역 모두 수확", command=self.harvest_all).pack(side="left", padx=4)
         ttk.Button(bar2, text="🚜 갈아엎기", command=self.plow).pack(side="left")
+        self.auto_replant = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar2, text="수확 후 자동 재파종 (시세 최고 작물)", variable=self.auto_replant,
+                        command=self.apply_auto_replant).pack(side="left", padx=8)
+        ttk.Button(bar2, text="📈 시세", command=lambda: self.show(self.prices)).pack(side="right")
         ttk.Button(bar2, text="📹 CCTV 전체", command=lambda: self.show(self.cctv)).pack(side="right")
         ttk.Button(bar2, text="⚙ 시뮬레이터 창", command=lambda: self.show(self.sim)).pack(side="right")
         ttk.Button(bar2, text="📱 모바일 앱", command=lambda: self.show(self.mobile)).pack(side="right", padx=4)
@@ -54,6 +59,7 @@ class App:
         self.sim = SimulatorWindow(self)
         self.mobile = MobileWindow(self)
         self.cctv = CctvWindow(self)
+        self.prices = PriceWindow(self)
         self.running = True
         self.reset()
         self.loop()
@@ -61,6 +67,7 @@ class App:
     # ---------- 상태 ----------
     def reset(self):
         self.farm = make_farm()
+        self.apply_auto_replant()
         self.selected = 0
         self.history = [deque(maxlen=HISTORY) for _ in self.farm.sections]
         self.night = deque(maxlen=HISTORY)
@@ -69,6 +76,9 @@ class App:
         self.sim.weather.set(0)
         self.record()
         self.draw()
+
+    def apply_auto_replant(self):
+        self.farm.auto_replant = self.auto_replant.get()
 
     def toggle(self):
         self.running = not self.running
@@ -198,6 +208,7 @@ class App:
         self.sim.refresh()
         self.mobile.refresh()
         self.cctv.refresh()
+        self.prices.refresh()
 
     def draw_header(self):
         c, f, w = self.canvas, self.farm, self.farm.weather
@@ -280,7 +291,7 @@ class App:
     def draw_harvests(self):
         c, log = self.canvas, self.farm.harvests
         x1, x2, y = 16, 560, 498
-        total = sum(kg for *_, kg, _ in log)
+        total = sum(h[3] for h in log)
         cost, rev, profit = totals(self.farm.cycles)
         c.create_text(x1, y, anchor="w", text="수확 기록", font=(FONT, 11, "bold"), fill=COLOR["ink"])
         c.create_text(x2, y, anchor="e", font=(FONT, 9), fill=COLOR["muted"],
@@ -290,13 +301,13 @@ class App:
             c.create_text(x1, y + 32, anchor="w", font=(FONT, 9), fill=COLOR["muted"],
                           text="아직 수확한 작물이 없습니다. 카드가 '수확 가능'이 되면 수확하세요.")
             return
-        cols = [(x1, "w", "일차"), (x1 + 60, "w", "구역"), (x1 + 130, "w", "작물"),
-                (x1 + 300, "e", "수확량"), (x1 + 400, "e", "품질")]
+        cols = [(x1, "w", "일차"), (x1 + 55, "w", "구역"), (x1 + 115, "w", "작물"),
+                (x1 + 235, "e", "수확량"), (x1 + 325, "e", "수확 시세"), (x1 + 395, "e", "품질")]
         for x, anchor, text in cols:
             c.create_text(x, y + 28, anchor=anchor, text=text, font=(FONT, 8, "bold"), fill=COLOR["muted"])
-        for k, (day, zone, crop, kg, quality) in enumerate(reversed(log[-10:])):
+        for k, (day, zone, crop, kg, quality, price) in enumerate(reversed(log[-10:])):
             yy = y + 46 + k * 18
-            row = [f"Day {day}", zone, crop, f"{kg:.1f} kg", f"{quality:.0f}%"]
+            row = [f"Day {day}", zone, crop, f"{kg:.1f} kg", f"{price:,.0f}원", f"{quality:.0f}%"]
             for (x, anchor, _), text in zip(cols, row):
                 c.create_text(x, yy, anchor=anchor, text=text, font=(FONT, 9), fill=COLOR["ink"])
             c.create_rectangle(x1 + 410, yy - 3, x1 + 410 + 1.2 * quality, yy + 3, outline="",
@@ -374,7 +385,8 @@ class App:
     def draw_money(self, s, x, y, w, h):
         """선택한 구역의 이번 재배 비용·예상 수익과 농장 전체 정산"""
         c = self.canvas
-        items, cost, expected = section_money(s)
+        price = self.farm.market.price(s.env_state.plant_profile.species)
+        items, cost, expected = section_money(s, price)
         c.create_rectangle(x, y, x + w, y + h, fill=COLOR["card"], outline=COLOR["line"])
         c.create_text(x + 10, y + 14, anchor="w", text="이번 재배 비용", font=(FONT, 9, "bold"), fill=COLOR["ink"])
         for k, (name, v) in enumerate(items):
@@ -388,6 +400,8 @@ class App:
         else:
             net = expected - cost
             c.create_text(x + 10, y + 124, anchor="w", text=f"예상 수익 {won(expected)}", font=(FONT, 8), fill=COLOR["muted"])
+            c.create_text(x + 10, y + 140, anchor="w", font=(FONT, 8), fill=COLOR["muted"],
+                          text=f"현재 시세 {price:,.0f}원/kg")
             c.create_text(x + w - 10, y + 124, anchor="e", text=f"순이익 {net:+,.0f}원",
                           font=(FONT, 9, "bold"), fill=COLOR["healthy"] if net >= 0 else COLOR["closed"])
 

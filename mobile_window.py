@@ -168,7 +168,7 @@ class MobileWindow(tk.Toplevel):
     def draw_cost(self, s, y):
         """구역 상세의 재배 비용·예상 수익 카드. 카드 아래 y를 돌려준다."""
         c = self.canvas
-        items, cost, expected = section_money(s)
+        items, cost, expected = section_money(s, self.app.farm.market.price(s.env_state.plant_profile.species))
         h = 78
         c.create_rectangle(16, y, self.W - 16, y + h, fill=COLOR["card"], outline=COLOR["line"])
         c.create_text(28, y + 14, anchor="w", text="이번 재배 비용", font=(FONT, 8), fill=COLOR["muted"])

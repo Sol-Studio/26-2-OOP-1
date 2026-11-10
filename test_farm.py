@@ -1,7 +1,10 @@
 import random
 import unittest
 
+import math
+
 import economics
+from market import Market
 from types import SimpleNamespace
 
 from main import (PlantProfile, EnvState, PlantState, FarmSection, Farm, Weather, Device, OnOffDevice,
@@ -252,6 +255,114 @@ class CctvTest(unittest.TestCase):
                 farm.hours = hour
                 for compact in (False, True):
                     draw_cctv(c, 0, 0, 300, 200, s, farm, 2, compact=compact)
+
+
+class MarketTest(unittest.TestCase):
+    def test_price_stays_within_range_and_moves(self):
+        random.seed(1)
+        m = Market({"상추": 8000})
+        seen = set()
+        for _ in range(6 * 24 * 60):
+            m.step(DT)
+            seen.add(round(m.price("상추")))
+            self.assertGreaterEqual(m.price("상추"), 8000 * 0.5 - 1)
+            self.assertLessEqual(m.price("상추"), 8000 * 1.8 + 1)
+        self.assertGreater(len(seen), 100)
+
+    def test_selling_lowers_price_then_it_recovers(self):
+        random.seed(2)
+        m = Market({"상추": 8000})
+        m.sell("상추", 400)
+        low = m.price("상추")
+        self.assertLess(low, 8000 * 0.95)
+        import market
+        old, market.VOLATILITY = market.VOLATILITY, 0.0
+        try:
+            for _ in range(6 * 24 * 10):
+                m.step(DT)
+        finally:
+            market.VOLATILITY = old
+        self.assertGreater(m.price("상추"), low)
+        self.assertLess(m.price("상추"), 8000)
+
+    def test_history_is_recorded_each_step(self):
+        m = Market({"상추": 8000})
+        for _ in range(5):
+            m.step(DT)
+        self.assertEqual(len(m.history["상추"]), 6)
+
+
+class AutoReplantTest(unittest.TestCase):
+    def setUp(self):
+        self.profiles = {"상추": PlantProfile("상추", (15, 22), 15000, (55, 75), humidity_range=(60, 80),
+                                               nutrient_range=(1.0, 1.6), grow_days=6, yield_kg=120),
+                         "토마토": PlantProfile("토마토", (18, 27), 30000, (60, 80), humidity_range=(60, 80),
+                                                nutrient_range=(2.0, 3.5), grow_days=12, yield_kg=360)}
+
+    def farm(self, replant=True):
+        s = FarmSection(ideal_env(self.profiles["상추"]), None, False, name="구역1")
+        s.plant(self.profiles["상추"])
+        s.plant_state.growth = 100.0
+        s.plant_state.age_hours = 10
+        s.plant_state.health_hours = 1000
+        f = Farm([s], profiles=self.profiles)
+        f.auto_replant = replant
+        return f, s
+
+    def test_replants_crop_with_best_daily_profit(self):
+        f, s = self.farm()
+        f.market.x["토마토"] = math.log(1.8)        # 토마토 시세 급등
+        f.market.x["상추"] = math.log(0.5)
+        f.harvest(s)
+        self.assertEqual(s.env_state.plant_profile.species, "토마토")
+        self.assertIsNotNone(s.plant_state)
+
+    def test_follows_price_changes(self):
+        f, s = self.farm()
+        f.market.x["토마토"] = math.log(0.5)        # 토마토 폭락
+        f.market.x["상추"] = math.log(1.8)
+        f.harvest(s)
+        self.assertEqual(s.env_state.plant_profile.species, "상추")
+
+    def test_off_leaves_section_empty(self):
+        f, s = self.farm(replant=False)
+        f.harvest(s)
+        self.assertIsNone(s.plant_state)
+
+    def test_harvest_uses_market_price_and_lowers_it(self):
+        f, s = self.farm(replant=False)
+        f.market.x["상추"] = math.log(1.5)
+        price = f.market.price("상추")
+        f.harvest(s)
+        self.assertAlmostEqual(f.harvests[0][5], price)
+        self.assertAlmostEqual(economics.cycle_result(s.cycles[0])[1],
+                               economics.revenue("상추", s.cycles[0]["kg"], s.cycles[0]["quality"], price))
+        self.assertLess(f.market.price("상추"), price)
+
+    def test_plow_does_not_replant(self):
+        f, s = self.farm()
+        s.plow()
+        self.assertIsNone(s.plant_state)
+
+
+class PriceWindowTest(unittest.TestCase):
+    def test_draws_for_each_range(self):
+        import tkinter as tk
+        from common import make_farm
+        from price_window import PriceWindow
+        try:
+            root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("화면을 쓸 수 없는 환경")
+        self.addCleanup(root.destroy)
+        app = SimpleNamespace(root=root, farm=make_farm())
+        w = PriceWindow(app)
+        w.deiconify()
+        for _ in range(200):
+            app.farm.market.step(DT)
+        for d in (1, 7, 30):
+            w.days.set(d)
+            w.refresh()
 
 
 if __name__ == "__main__":
