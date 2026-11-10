@@ -3,110 +3,9 @@ from collections import deque
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-from main import PlantProfile, EnvState, PlantState, FarmSection, Farm, LEAFY_STAGES, FRUIT_STAGES
-
-DT = 1 / 6              # 한 단계 = 10분
-HISTORY = 6 * 24        # 그래프에 남길 단계 수 (24시간)
-FONT = "Malgun Gothic"
-
-COLOR = {
-    "bg": "#f3f5f1", "card": "#ffffff", "line": "#c9d3cb", "ink": "#1d2620", "muted": "#6b7a70",
-    "healthy": "#2f7d4a", "closed": "#c0582a", "dead": "#7a7a7a", "band": "#e1eee4",
-    "night": "#e6e9ef", "plot": "#1f6fb2", "on": "#2f7d4a", "off": "#d9dfda",
-    "ready": "#b8860b", "empty": "#f7f8f6",
-}
-
-# 작물, 적정 온도, 최소 조도, 적정 토양 습도, 적정 습도, 적정 EC, 재배 일수, 수확량(kg), 생육 단계
-PROFILES = [
-    ("상추",     (15, 22), 15000, (55, 75), (60, 80), (1.0, 1.6), 6,  4.0,  LEAFY_STAGES),
-    ("토마토",   (18, 27), 30000, (60, 80), (60, 80), (2.0, 3.5), 12, 12.0, FRUIT_STAGES),
-    ("딸기",     (17, 25), 25000, (55, 75), (60, 75), (0.8, 1.4), 10, 5.0,  FRUIT_STAGES),
-    ("파프리카", (20, 27), 30000, (60, 80), (60, 80), (2.0, 3.0), 12, 10.0, FRUIT_STAGES),
-    ("오이",     (20, 28), 25000, (65, 85), (70, 90), (1.8, 2.5), 8,  15.0, FRUIT_STAGES),
-    ("시금치",   (15, 20), 15000, (55, 75), (60, 80), (1.5, 2.0), 6,  3.0,  LEAFY_STAGES),
-]
-
-
-def make_profile(name):
-    _, temp, lux, soil, hum, ec, days, kg, stages = next(p for p in PROFILES if p[0] == name)
-    return PlantProfile(name, temp, lux, soil, humidity_range=hum, nutrient_range=ec,
-                        grow_days=days, yield_kg=kg, stages=stages)
-
-# 그래프: (제목, 값 꺼내는 함수, y축 범위, 적정 범위 함수, 단위)
-CHARTS = [
-    ("온도",      lambda s: s.env_state.temperature,   (0, 40),     lambda p: p.temperature_range, "°C"),
-    ("습도",      lambda s: s.env_state.humidity,      (20, 100),   lambda p: p.humidity_range, "%"),
-    ("토양 습도", lambda s: s.env_state.soil_humidity, (0, 100),    lambda p: p.soil_humidity_range, "%"),
-    ("양액 EC",   lambda s: s.env_state.nutrient,      (0, 4),      lambda p: p.nutrient_range, "mS/cm"),
-    ("조도",      lambda s: s.env_state.luminosity,    (0, 70000),  lambda p: (p.min_luminosity, 70000), "lux"),
-    ("CO2",       lambda s: s.env_state.gas_density,   (150, 1300), lambda p: p.co2_range, "ppm"),
-]
-
-
-def make_farm():
-    sections = []
-    for i, (name, temp, _, soil, hum, ec, *_) in enumerate(PROFILES):
-        env = EnvState(make_profile(name), sum(temp) / 2, sum(hum) / 2, 500, sum(soil) / 2, 0, sum(ec) / 2)
-        sections.append(FarmSection(env, PlantState(True, False), False, name=f"구역{i + 1}"))
-    return Farm(sections, start_hour=6)
-
-
-ZONES = [f"구역{i + 1}" for i in range(len(PROFILES))]
-
-
-class SimulatorWindow(tk.Toplevel):
-    """시뮬레이션 환경 조작 창: 진행 제어, 날씨, 병충해 발생. 스마트팜 관리 패널과 따로 띄운다."""
-    WEATHER = [("평년", 0), ("한파 (바깥 -10°C)", -10), ("폭염 (바깥 +12°C)", 12)]
-
-    def __init__(self, app):
-        super().__init__(app.root, bg=COLOR["bg"], padx=14, pady=12)
-        self.app = app
-        self.title("에버그로우 - 시뮬레이터")
-        self.resizable(False, False)
-        self.protocol("WM_DELETE_WINDOW", self.withdraw)   # 닫아도 관리 패널에서 다시 열 수 있게 숨기기만
-
-        def section(text):
-            frame = tk.LabelFrame(self, text=text, bg=COLOR["bg"], font=(FONT, 9, "bold"), padx=8, pady=6)
-            frame.pack(fill="x", pady=(0, 8))
-            return frame
-
-        self.status = tk.Label(self, bg=COLOR["bg"], font=(FONT, 10), anchor="w", justify="left")
-        self.status.pack(fill="x", pady=(0, 8))
-
-        run = section("진행")
-        self.run_btn = ttk.Button(run, text="⏸ 정지", command=app.toggle)
-        self.run_btn.pack(side="left")
-        ttk.Button(run, text="10분 진행", command=app.step).pack(side="left", padx=4)
-        ttk.Button(run, text="초기화", command=app.reset).pack(side="left")
-        speed = section("속도 (ms / 10분)")
-        self.speed = tk.Scale(speed, from_=20, to=1000, orient="horizontal", length=260,
-                              bg=COLOR["bg"], highlightthickness=0)
-        self.speed.set(120)
-        self.speed.pack(fill="x")
-
-        weather = section("바깥 날씨")
-        self.weather = tk.IntVar(value=0)
-        for text, delta in self.WEATHER:
-            tk.Radiobutton(weather, text=text, value=delta, variable=self.weather, font=(FONT, 9),
-                           bg=COLOR["bg"], activebackground=COLOR["bg"],
-                           command=lambda: app.set_weather(self.weather.get())).pack(anchor="w")
-
-        pests = section("병충해 발생")
-        self.zone = ttk.Combobox(pests, values=ZONES, state="readonly", width=8)
-        self.zone.current(0)
-        self.zone.pack(side="left")
-        ttk.Button(pests, text="🐛 병충해 발생", command=lambda: app.inject_pests(self.zone.current())
-                   ).pack(side="left", padx=4)
-
-        # 관리 패널과 겹치지 않게 화면 오른쪽 위에 둔다
-        self.update_idletasks()
-        self.geometry(f"+{self.winfo_screenwidth() - self.winfo_reqwidth() - 60}+60")
-
-    def refresh(self):
-        f, w = self.app.farm, self.app.farm.weather
-        mode = next(text for text, delta in self.WEATHER if delta == self.weather.get()).split(" ")[0]
-        self.status.config(text=f"Day {f.day}  {int(f.hour):02d}:{int(f.hour % 1 * 60):02d}   "
-                                f"바깥 {w.temperature:.1f}°C ({mode})")
+from common import DT, HISTORY, FONT, COLOR, PROFILES, CHARTS, ZONES, make_profile, make_farm
+from simulator_window import SimulatorWindow
+from mobile_window import MobileWindow
 
 
 class App:
@@ -131,7 +30,8 @@ class App:
         ttk.Button(bar2, text="🧺 수확 / 정리", command=self.harvest).pack(side="left")
         ttk.Button(bar2, text="수확 가능한 구역 모두 수확", command=self.harvest_all).pack(side="left", padx=4)
         ttk.Button(bar2, text="🚜 갈아엎기", command=self.plow).pack(side="left")
-        ttk.Button(bar2, text="⚙ 시뮬레이터 창", command=self.show_simulator).pack(side="right")
+        ttk.Button(bar2, text="⚙ 시뮬레이터 창", command=lambda: self.show(self.sim)).pack(side="right")
+        ttk.Button(bar2, text="📱 모바일 앱", command=lambda: self.show(self.mobile)).pack(side="right", padx=4)
 
         # 로그: 구역별로 걸러 보기 (구역 표시가 없는 날씨 등 공통 로그는 항상 보인다)
         logbar = tk.Frame(root, bg=COLOR["bg"])
@@ -148,6 +48,7 @@ class App:
         self.log.pack(fill="both", expand=True, padx=12, pady=(4, 12))
 
         self.sim = SimulatorWindow(self)
+        self.mobile = MobileWindow(self)
         self.running = True
         self.reset()
         self.loop()
@@ -176,9 +77,10 @@ class App:
         self.step()
         self.root.after(self.sim.speed.get(), self.loop)
 
-    def show_simulator(self):
-        self.sim.deiconify()
-        self.sim.lift()
+    def show(self, window):
+        window.deiconify()
+        window.lift()
+        window.refresh()
 
     def step(self):
         self.run(lambda: self.farm.process(DT))
@@ -269,13 +171,17 @@ class App:
     def on_click(self, e):
         for i, (x1, y1, x2, y2) in enumerate(self.card_boxes):
             if x1 <= e.x <= x2 and y1 <= e.y <= y2:
-                self.selected = i
-                self.crop.set(self.farm.sections[i].env_state.plant_profile.species)
-                self.sim.zone.current(i)
-                if self.log_filter.get() != "전체":     # 구역 로그를 보는 중이면 클릭한 구역으로 바꾼다
-                    self.log_filter.set(ZONES[i])
-                    self.refill_log()
-                self.draw()
+                self.select(i)
+
+    def select(self, i):
+        """구역 선택. 관리 패널, 시뮬레이터, 모바일 앱이 같은 구역을 가리키게 맞춘다."""
+        self.selected = i
+        self.crop.set(self.farm.sections[i].env_state.plant_profile.species)
+        self.sim.zone.current(i)
+        if self.log_filter.get() != "전체":     # 구역 로그를 보는 중이면 선택한 구역으로 바꾼다
+            self.log_filter.set(ZONES[i])
+            self.refill_log()
+        self.draw()
 
     # ---------- 그리기 ----------
     def draw(self):
@@ -285,6 +191,7 @@ class App:
         self.draw_harvests()
         self.draw_detail()
         self.sim.refresh()
+        self.mobile.refresh()
 
     def draw_header(self):
         c, f, w = self.canvas, self.farm, self.farm.weather
