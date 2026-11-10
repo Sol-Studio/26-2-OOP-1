@@ -1,4 +1,5 @@
 import math, random, time
+from types import SimpleNamespace
 
 # 생육 단계: (이름, 시작 생장도). 마지막 단계에 도달하면 수확할 수 있다.
 LEAFY_STAGES = (("발아", 0), ("유묘", 10), ("생장", 35), ("수확기", 100))
@@ -45,25 +46,326 @@ class Weather:
         self.humidity = min(98, max(30, 75 - (self.temperature - self.base_temp) * 3 + self.cloud * 15))
 
 
-class Devices:
-    """구역 하나에 달린 장치들과 누적 사용량"""
-    POWER_KW = {"heater": 3.0, "cooler": 2.5, "fan": 0.3, "humidifier": 0.4, "dehumidifier": 0.6}
-    LIGHT_KW = 1.0
-    LIGHT_LUX = 25000
+class Readings(SimpleNamespace):
+    """센서가 한 번에 읽은 값. temperature, humidity, co2, soil_humidity, nutrient, luminosity"""
+
+
+class Sensor:
+    """센서 베이스. 서브클래스는 measure()에서 환경의 어떤 값을 잴지만 정한다."""
+    key = ""        # Readings의 속성 이름
+    label = ""
+    unit = ""
+
+    def __init__(self, noise: float = 0.0):
+        self.noise = noise      # 측정 오차 표준편차 (0이면 정확히 잰다)
+
+    def measure(self, env: "EnvState") -> float:
+        raise NotImplementedError
+
+    def read(self, env: "EnvState") -> float:
+        value = self.measure(env)
+        return value + random.gauss(0, self.noise) if self.noise else value
+
+
+class TemperatureSensor(Sensor):
+    key, label, unit = "temperature", "온도", "°C"
+
+    def measure(self, env): return env.temperature
+
+
+class HumiditySensor(Sensor):
+    key, label, unit = "humidity", "습도", "%"
+
+    def measure(self, env): return env.humidity
+
+
+class Co2Sensor(Sensor):
+    key, label, unit = "co2", "CO2", "ppm"
+
+    def measure(self, env): return env.gas_density
+
+
+class SoilMoistureSensor(Sensor):
+    key, label, unit = "soil_humidity", "토양 습도", "%"
+
+    def measure(self, env): return env.soil_humidity
+
+
+class NutrientSensor(Sensor):
+    key, label, unit = "nutrient", "양액 EC", "mS/cm"
+
+    def measure(self, env): return env.nutrient
+
+
+class LightSensor(Sensor):
+    key, label, unit = "luminosity", "조도", "lux"
+
+    def measure(self, env): return env.luminosity
+
+
+class SensorPanel:
+    """구역에 달린 센서 모음. 장치는 환경을 직접 보지 않고 이 측정값만 본다."""
+    def __init__(self, sensors=None):
+        self.sensors = list(sensors) if sensors is not None else [
+            TemperatureSensor(), HumiditySensor(), Co2Sensor(),
+            SoilMoistureSensor(), NutrientSensor(), LightSensor()]
+
+    def read_all(self, env: "EnvState") -> Readings:
+        return Readings(**{s.key: s.read(env) for s in self.sensors})
+
+
+class Effects:
+    """장치들이 이번 단계에 환경에 주는 영향의 합. EnvState.update가 이 값만 본다."""
+    def __init__(self):
+        self.vent = 0.15            # 외기 교환율 (/h)
+        self.co2_exchange = 0.2     # CO2 교환율 (/h)
+        self.heat = 0.0             # °C/h
+        self.humidity = 0.0         # %/h
+        self.lux = 0.0
+        self.water_l = 0.0
+        self.fertilizer_g = 0.0
+
+
+class Device:
+    """장치 베이스. 환경에 주는 영향(contribute)과 자동 제어 판단(control)을 서브클래스가 정한다."""
+    key = ""
+    label = ""
+    power_kw = 0.0          # 켜져 있을 때 소비 전력 (kW)
+
+    @property
+    def power(self) -> float:
+        return 0.0
+
+    def contribute(self, fx: Effects):
+        """환경에 주는 영향을 fx에 더한다."""
+
+    def control(self, r: Readings, profile: "PlantProfile", ctx):
+        """측정값을 보고 상태를 정한다. ctx: closed(격리 중), hour, log"""
+
+    def end_step(self):
+        """한 단계가 끝날 때 1회성 상태를 비운다."""
+
+    def reset(self):
+        """식물이 없을 때: 가동을 멈춘다 (누적량은 남긴다)."""
+
+
+class OnOffDevice(Device):
+    """켜짐/꺼짐 장치. decide()가 (켤지, 이유)를 돌려주면 상태가 바뀔 때만 로그를 남긴다."""
+    def __init__(self):
+        self.on = False
+
+    @property
+    def power(self):
+        return self.power_kw if self.on else 0.0
+
+    def decide(self, r, profile, ctx):
+        """(on, 이유)를 돌려준다. 상태를 유지하려면 None"""
+        return None
+
+    def control(self, r, profile, ctx):
+        decision = self.decide(r, profile, ctx)
+        if decision and decision[0] != self.on:
+            self.on = decision[0]
+            ctx.log(f"{self.label} {'ON' if self.on else 'OFF'} ({decision[1]})")
+
+    def reset(self):
+        self.on = False
+
+
+class Heater(OnOffDevice):
+    key, label, power_kw = "heater", "난방", 3.0
+
+    def contribute(self, fx):
+        if self.on:
+            fx.heat += 4.0
+
+    def decide(self, r, p, ctx):
+        lo = p.temperature_range[0]
+        if r.temperature < lo:
+            return True, f"{r.temperature:.1f}°C < {lo}°C"
+        if r.temperature > lo + 1:
+            return False, f"{r.temperature:.1f}°C"
+
+
+class Cooler(OnOffDevice):
+    key, label, power_kw = "cooler", "냉방", 2.5
+
+    def contribute(self, fx):
+        if self.on:
+            fx.heat -= 4.0
+            fx.humidity -= 3.0      # 냉방하면 응결로 습도도 내려간다
+
+    def decide(self, r, p, ctx):
+        hi = p.temperature_range[1]
+        if r.temperature > hi:
+            return True, f"{r.temperature:.1f}°C > {hi}°C"
+        if r.temperature < hi - 1:
+            return False, f"{r.temperature:.1f}°C"
+
+
+class Dehumidifier(OnOffDevice):
+    key, label, power_kw = "dehumidifier", "제습기", 0.6
+
+    def contribute(self, fx):
+        if self.on:
+            fx.humidity -= 12.0
+
+    def decide(self, r, p, ctx):
+        hi = p.humidity_range[1]
+        if r.humidity > hi:
+            return True, f"{r.humidity:.1f}% > {hi}%"
+        if r.humidity < hi - 5:
+            return False, f"{r.humidity:.0f}%"
+
+
+class Humidifier(OnOffDevice):
+    key, label, power_kw = "humidifier", "가습기", 0.4
+
+    def contribute(self, fx):
+        if self.on:
+            fx.humidity += 10.0
+
+    def decide(self, r, p, ctx):
+        lo = p.humidity_range[0]
+        if r.humidity < lo:
+            return True, f"{r.humidity:.1f}% < {lo}%"
+        if r.humidity > lo + 5:
+            return False, f"{r.humidity:.0f}%"
+
+
+class Fan(OnOffDevice):
+    """환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음)"""
+    key, label, power_kw = "fan", "환기팬", 0.3
+
+    def contribute(self, fx):
+        if self.on:
+            fx.vent += 0.8
+            fx.co2_exchange += 1.5
+
+    def decide(self, r, p, ctx):
+        t_hi = p.temperature_range[1]
+        c_lo, c_hi = p.co2_range
+        T, C = r.temperature, r.co2
+        if ctx.closed:
+            return False, "격리 중"
+        if T > t_hi + 2 or C > c_hi or C < c_lo:
+            return True, f"{T:.1f}°C, CO2 {C:.0f}ppm"
+        if T < t_hi + 1 and c_lo + 80 < C < c_hi - 100:
+            return False, f"CO2 {C:.0f}ppm"
+
+
+class GrowLight(Device):
+    """인공조명: 6~22시 동안 자연광이 모자란 만큼 보충 (밝기 0~1)"""
+    key, label = "light", "인공조명"
+    KW = 1.0
+    LUX = 25000
 
     def __init__(self):
-        self.heater = self.cooler = self.fan = False
-        self.humidifier = self.dehumidifier = False
-        self.light = 0.0          # 인공조명 밝기 0~1
-        self.water_l = 0.0        # 이번 단계 급수량
-        self.fertilizer_g = 0.0   # 이번 단계 비료 살포량
-        self.total_water_l = 0.0
-        self.total_fertilizer_g = 0.0
+        self.level = 0.0
+
+    @property
+    def power(self):
+        return self.level * self.KW
+
+    def contribute(self, fx):
+        fx.lux += self.level * self.LUX
+
+    def control(self, r, p, ctx):
+        natural = r.luminosity - self.level * self.LUX
+        if 6 <= ctx.hour < 22 and natural < p.min_luminosity:
+            level = min(1.0, (p.min_luminosity - natural) / self.LUX)
+        else:
+            level = 0.0
+        if (level > 0) != (self.level > 0):
+            ctx.log(f"{self.label} {'ON' if level > 0 else 'OFF'} (자연광 {natural:,.0f}lux)")
+        self.level = round(level, 2)
+
+    def reset(self):
+        self.level = 0.0
+
+
+class DosingDevice(Device):
+    """1회성으로 양을 투입하는 장치. amount는 이번 단계 투입량, total은 누적량"""
+    def __init__(self):
+        self.amount = 0.0
+        self.total = 0.0
+
+    def dose(self, amount, ctx, msg):
+        self.amount = amount
+        self.total += amount
+        ctx.log(msg)
+
+    def end_step(self):
+        self.amount = 0.0
+
+    def reset(self):
+        self.amount = 0.0
+
+
+class Irrigation(DosingDevice):
+    """급수: 토양 습도가 하한 아래로 떨어지면 적정 범위 중간까지"""
+    key, label = "irrigation", "급수"
+
+    def contribute(self, fx):
+        fx.water_l += self.amount
+
+    def control(self, r, p, ctx):
+        lo, hi = p.soil_humidity_range
+        if r.soil_humidity < lo:
+            target = (lo + hi) / 2
+            liters = (target - r.soil_humidity) / 2.0
+            self.dose(liters, ctx, f"급수 {liters:.1f}L (토양 습도 {r.soil_humidity:.0f}% → {target:.0f}%)")
+
+
+class Fertilizer(DosingDevice):
+    """비료: EC가 하한 아래면 중간값까지"""
+    key, label = "fertilizer", "비료"
+
+    def contribute(self, fx):
+        fx.fertilizer_g += self.amount
+
+    def control(self, r, p, ctx):
+        lo, hi = p.nutrient_range
+        if r.nutrient < lo:
+            target = (lo + hi) / 2
+            grams = (target - r.nutrient) / 0.02
+            self.dose(grams, ctx, f"비료 {grams:.0f}g 살포 (EC {r.nutrient:.2f} → {target:.2f})")
+
+
+def _device_attr(key, attr):
+    return property(lambda self: getattr(self.by_key[key], attr))
+
+
+class Devices:
+    """구역 하나에 달린 장치들과 누적 사용량. 제어 순서대로 들고 있고, 화면용 속성도 제공한다."""
+    def __init__(self, devices=None):
+        self.items = list(devices) if devices is not None else [
+            Heater(), Cooler(), Dehumidifier(), Humidifier(), Fan(), Irrigation(), Fertilizer(), GrowLight()]
+        self.by_key = {d.key: d for d in self.items}
         self.total_energy_kwh = 0.0
 
+    heater = _device_attr("heater", "on")
+    cooler = _device_attr("cooler", "on")
+    fan = _device_attr("fan", "on")
+    humidifier = _device_attr("humidifier", "on")
+    dehumidifier = _device_attr("dehumidifier", "on")
+    light = _device_attr("light", "level")              # 인공조명 밝기 0~1
+    water_l = _device_attr("irrigation", "amount")      # 이번 단계 급수량
+    fertilizer_g = _device_attr("fertilizer", "amount")  # 이번 단계 비료 살포량
+    total_water_l = _device_attr("irrigation", "total")
+    total_fertilizer_g = _device_attr("fertilizer", "total")
+
+    def __iter__(self):
+        return iter(self.items)
+
     def power_kw(self):
-        kw = sum(p for name, p in self.POWER_KW.items() if getattr(self, name))
-        return kw + self.light * self.LIGHT_KW
+        return sum(d.power for d in self.items)
+
+    def effects(self) -> Effects:
+        fx = Effects()
+        for d in self.items:
+            d.contribute(fx)
+        return fx
 
 
 class EnvState:
@@ -79,36 +381,37 @@ class EnvState:
 
     def update(self, weather: Weather, dev: Devices, plant_alive: bool, shaded: bool, dt: float):
         """dt시간 동안의 온실 내부 환경 변화"""
-        vent = 0.15 + 0.8 * dev.fan                        # 외기 교환율 (/h)
+        fx = dev.effects()                                 # 장치들이 주는 영향
+        vent = fx.vent                                     # 외기 교환율 (/h)
         sun_in = weather.sunlight * 0.7 * (0.3 if shaded else 1.0)   # 유리 투과율, 차폐막
-        self.luminosity = sun_in + dev.light * Devices.LIGHT_LUX
+        self.luminosity = sun_in + fx.lux
         light = self.luminosity / 60000                    # 대략 0~1
         leaf = 1.0 if plant_alive else 0.0
 
         dT = ((weather.temperature - self.temperature) * vent
               + sun_in / 60000 * 3.0                       # 온실 효과
-              + 4.0 * dev.heater - 4.0 * dev.cooler)
+              + fx.heat)
         self.temperature += dT * dt + random.gauss(0, 0.1)
 
         dH = ((weather.humidity - self.humidity) * vent
               + leaf * (1 + 4 * light)                      # 증산
-              + 10 * dev.humidifier - 12 * dev.dehumidifier - 3 * dev.cooler)
+              + fx.humidity)
         self.humidity = min(100, max(15, self.humidity + dH * dt + random.gauss(0, 0.3)))
 
-        dC = ((420 - self.gas_density) * (0.2 + 1.5 * dev.fan)
+        dC = ((420 - self.gas_density) * fx.co2_exchange
               - leaf * 180 * light                          # 광합성
               + leaf * 25)                                  # 호흡
         self.gas_density = max(150, self.gas_density + dC * dt)
 
         evap = 0.5 + 0.05 * max(self.temperature, 0) + 1.5 * light * leaf
-        self.soil_humidity = max(0, self.soil_humidity - evap * dt + dev.water_l * 2.0)
+        self.soil_humidity = max(0, self.soil_humidity - evap * dt + fx.water_l * 2.0)
 
         uptake = leaf * (0.01 + 0.03 * light)
-        self.nutrient = max(0, self.nutrient - uptake * dt - dev.water_l * 0.004 + dev.fertilizer_g * 0.02)
+        self.nutrient = max(0, self.nutrient - uptake * dt - fx.water_l * 0.004 + fx.fertilizer_g * 0.02)
 
 
 class PlantState:
-    OVERRIPE_STRESS = 0.3   # 수확기를 넘기면 조금씩 상한다
+    OVERRIPE_DECAY = 1.0    # 수확기를 넘기면 시간당 이만큼 건강도가 떨어진다 (회복과 무관)
 
     def __init__(self, alive: bool = True, pests: bool = False, health: float = 100.0, growth: float = 0.0):
         self.alive = alive
@@ -116,6 +419,7 @@ class PlantState:
         self.health = health    # 0이 되면 고사
         self.growth = growth    # 수확까지 0~100
         self.age_hours = 0.0    # 파종 후 경과 시간
+        self.overripe_hours = 0.0  # 수확기를 넘긴 뒤 경과 시간
         self.health_hours = 0.0 # 건강도 × 시간 누적 (평균 건강도 = 품질)
 
     @property
@@ -139,15 +443,18 @@ class PlantState:
             return
         p = env.plant_profile
         self.age_hours += dt
-        stress = self.OVERRIPE_STRESS if self.ready else 0.0
-        stress += _out_of(env.temperature, p.temperature_range) / 3
+        stress = _out_of(env.temperature, p.temperature_range) / 3
         stress += _out_of(env.humidity, p.humidity_range) / 15
         stress += _out_of(env.soil_humidity, p.soil_humidity_range) / 10
         stress += _out_of(env.nutrient, p.nutrient_range) / 0.5
         if self.pests:
             stress += 1.5
-        self.health += (1.0 - 3.0 * stress) * dt
-        self.health = min(100.0, self.health)
+        delta = (1.0 - 3.0 * stress) * dt
+        if self.ready:
+            # 수확기를 넘기면 회복하지 못하고, 환경이 좋아도 계속 상한다
+            self.overripe_hours += dt
+            delta = min(delta, 0.0) - self.OVERRIPE_DECAY * dt
+        self.health = min(100.0, self.health + delta)
         if self.health <= 0:
             self.health = 0
             self.alive = False
@@ -179,6 +486,7 @@ class FarmSection:
         self.plant_state = plant_state    # 빈 구역이면 None
         self.is_closed = is_closed
         self.devices = Devices()
+        self.sensors = SensorPanel()
         self.name = name
         self.control_failures = 0         # 이번 병충해에 대한 연속 방제 실패 횟수
 
@@ -236,38 +544,41 @@ class FarmSection:
         self._clear()
         return p.species, kg, quality
 
-    def switch(self, device: str, on: bool, reason: str):
-        if getattr(self.devices, device) != on:
-            setattr(self.devices, device, on)
-            label = {"heater": "난방", "cooler": "냉방", "fan": "환기팬",
-                     "humidifier": "가습기", "dehumidifier": "제습기"}[device]
-            self.log(f"{label} {'ON' if on else 'OFF'} ({reason})")
-
     def process(self, weather: Weather = None, hour: float = 12.0, dt: float = 1 / 6):
-        """dt시간만큼 환경·식물을 진행시키고, 측정값을 보고 장치를 조절한다."""
-        env, plant, dev, p = self.env_state, self.plant_state, self.devices, self.env_state.plant_profile
-        weather = weather or Weather()
+        """dt시간만큼 환경·식물을 진행시키고, 센서 측정값으로 장치를 조절한다."""
+        was_alive = self._advance(weather or Weather(), dt)
+        if not (self.plant_state and self.plant_state.alive):
+            self._shutdown(was_alive)
+            return
+        self._handle_pests(dt)
+        self._run_controls(hour)
 
+    def _advance(self, weather: Weather, dt: float) -> bool:
+        """환경과 식물을 dt만큼 진행한다. 진행 전에 식물이 살아 있었는지 돌려준다."""
+        env, plant, dev = self.env_state, self.plant_state, self.devices
         was_alive = bool(plant and plant.alive)
         env.update(weather, dev, was_alive, self.is_closed, dt)
         if plant:
+            p = env.plant_profile
             stage = p.stage(plant.growth)
             plant.update(env, dt)
             if plant.alive and p.stage(plant.growth) != stage:
                 self.log(f"생육 단계 {stage} → {p.stage(plant.growth)}" + (" · 수확 가능" if plant.ready else ""))
         dev.total_energy_kwh += dev.power_kw() * dt
-        dev.water_l = dev.fertilizer_g = 0.0
+        for d in dev:
+            d.end_step()
+        return was_alive
 
-        # 빈 구역이거나 고사했으면 장치를 모두 끈다
-        if not (plant and plant.alive):
-            if was_alive:
-                self.log("식물이 죽었습니다.")
-            for d in ("heater", "cooler", "fan", "humidifier", "dehumidifier"):
-                setattr(dev, d, False)
-            dev.light = 0.0
-            return
+    def _shutdown(self, was_alive: bool):
+        """빈 구역이거나 고사했으면 장치를 모두 끈다."""
+        if was_alive:
+            self.log("식물이 죽었습니다.")
+        for d in self.devices:
+            d.reset()
 
-        # 병충해: 구역 차폐 후 방제(일정 확률로 실패), 사라지면 개방
+    def _handle_pests(self, dt: float):
+        """병충해: 구역 차폐 후 방제(일정 확률로 실패), 사라지면 개방"""
+        plant = self.plant_state
         if plant.pests and not self.is_closed:
             self.log("병충해 발생이 감지되어 구역을 격리합니다.")
             self.is_closed = True
@@ -283,70 +594,19 @@ class FarmSection:
             self.is_closed = False
             self.control_failures = 0
 
-        # 냉난방 (1°C 히스테리시스)
-        t_lo, t_hi = p.temperature_range
-        T = env.temperature
-        if T < t_lo:
-            self.switch("heater", True, f"{T:.1f}°C < {t_lo}°C")
-        elif T > t_lo + 1:
-            self.switch("heater", False, f"{T:.1f}°C")
-        if T > t_hi:
-            self.switch("cooler", True, f"{T:.1f}°C > {t_hi}°C")
-        elif T < t_hi - 1:
-            self.switch("cooler", False, f"{T:.1f}°C")
-
-        # 습도
-        h_lo, h_hi = p.humidity_range
-        H = env.humidity
-        if H > h_hi:
-            self.switch("dehumidifier", True, f"{H:.1f}% > {h_hi}%")
-        elif H < h_hi - 5:
-            self.switch("dehumidifier", False, f"{H:.0f}%")
-        if H < h_lo:
-            self.switch("humidifier", True, f"{H:.1f}% < {h_lo}%")
-        elif H > h_lo + 5:
-            self.switch("humidifier", False, f"{H:.0f}%")
-
-        # 환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음)
-        c_lo, c_hi = p.co2_range
-        C = env.gas_density
-        if self.is_closed:
-            self.switch("fan", False, "격리 중")
-        elif T > t_hi + 2 or C > c_hi or C < c_lo:
-            self.switch("fan", True, f"{T:.1f}°C, CO2 {C:.0f}ppm")
-        elif T < t_hi + 1 and c_lo + 80 < C < c_hi - 100:
-            self.switch("fan", False, f"CO2 {C:.0f}ppm")
-
-        # 급수: 하한 아래로 떨어지면 적정 범위 중간까지
-        s_lo, s_hi = p.soil_humidity_range
-        if env.soil_humidity < s_lo:
-            target = (s_lo + s_hi) / 2
-            dev.water_l = (target - env.soil_humidity) / 2.0
-            dev.total_water_l += dev.water_l
-            self.log(f"급수 {dev.water_l:.1f}L (토양 습도 {env.soil_humidity:.0f}% → {target:.0f}%)")
-
-        # 비료: EC가 하한 아래면 중간값까지
-        n_lo, n_hi = p.nutrient_range
-        if env.nutrient < n_lo:
-            target = (n_lo + n_hi) / 2
-            dev.fertilizer_g = (target - env.nutrient) / 0.02
-            dev.total_fertilizer_g += dev.fertilizer_g
-            self.log(f"비료 {dev.fertilizer_g:.0f}g 살포 (EC {env.nutrient:.2f} → {target:.2f})")
-
-        # 인공조명: 6~22시 동안 자연광이 모자란 만큼 보충
-        natural = env.luminosity - dev.light * Devices.LIGHT_LUX
-        if 6 <= hour < 22 and natural < p.min_luminosity:
-            level = min(1.0, (p.min_luminosity - natural) / Devices.LIGHT_LUX)
-        else:
-            level = 0.0
-        if (level > 0) != (dev.light > 0):
-            self.log(f"인공조명 {'ON' if level > 0 else 'OFF'} (자연광 {natural:,.0f}lux)")
-        dev.light = round(level, 2)
+    def _run_controls(self, hour: float):
+        """센서를 한 번 읽고, 각 장치가 스스로 켜고 끌지 판단한다."""
+        readings = self.sensors.read_all(self.env_state)
+        ctx = SimpleNamespace(closed=self.is_closed, hour=hour, log=self.log)
+        for d in self.devices:
+            d.control(readings, self.env_state.plant_profile, ctx)
 
 
 class Farm:
-    def __init__(self, sections: list, start_hour: float = 6.0, weather: Weather = None):
+    def __init__(self, sections: list, start_hour: float = 6.0, weather: Weather = None,
+                 auto_harvest: bool = True):
         self.sections = sections
+        self.auto_harvest = auto_harvest   # 다 자란 구역을 바로 수확한다
         self.hours = start_hour      # 시뮬레이션 시작부터 흐른 시간
         self.weather = weather or Weather()
         self.harvests = []           # (일차, 구역 이름, 작물, kg, 품질 %)
@@ -370,6 +630,8 @@ class Farm:
         self.weather.update(self.hour, dt)
         for section in self.sections:
             section.process(self.weather, self.hour, dt)
+            if self.auto_harvest and section.plant_state and section.plant_state.ready:
+                self.harvest(section)
 
 
 if __name__ == "__main__":
