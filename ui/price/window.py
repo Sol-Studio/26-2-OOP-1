@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from common import COLOR, FONT, PROFILES
+from core.catalog import PROFILES
+from ui.theme import COLOR, FONT
 
 CROP_COLORS = ["#2f7d4a", "#d63a2f", "#e0405a", "#e8a91c", "#1f6fb2", "#7a4fb0"]
 STEPS_PER_DAY = 144

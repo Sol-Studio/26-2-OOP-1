@@ -127,40 +127,65 @@ python visualize.py
 
 ```
 26-2-OOP-1/
-├── main.md               기획서 (해결할 문제, 입출력, 핵심 기능)
-├── main.py               ★ 스마트팜 모델 (화면 없음)
-├── common.py             여러 창이 같이 쓰는 색, 글꼴, 작물 목록
-├── visualize.py          관리 패널 창 + 프로그램 시작점
-├── simulator_window.py   시뮬레이터 창
-└── mobile_window.py      모바일 앱 창
+├── main.md                 기획서 (해결할 문제, 입출력, 핵심 기능)
+├── main.py                 화면 없이 모델만 돌려 보는 실행 파일
+├── visualize.py            ★ 프로그램 시작점 (관리 패널 창을 띄움)
+├── test_farm.py            테스트
+├── core/                   모델 (화면 없음, tkinter 모름)
+│   ├── plant.py            작물 적정 조건(PlantProfile), 식물 상태(PlantState)
+│   ├── weather.py          바깥 날씨
+│   ├── sensors.py          센서와 센서 묶음
+│   ├── devices.py          냉난방·환기·조명·급수·비료 장치
+│   ├── environment.py      구역 안 환경(EnvState)
+│   ├── section.py          구역 하나(FarmSection) — 제어 로직
+│   ├── farm.py             농장 전체(Farm)
+│   ├── economics.py        재배 비용과 판매 수익 계산
+│   ├── market.py           작물 시세
+│   └── catalog.py          작물 목록(PROFILES)과 기본 농장 만들기
+└── ui/                         화면 (창별 폴더, 위젯·탭별 파일)
+    ├── theme.py                색, 글꼴, 그래프 정의
+    ├── shared/                 여러 창이 같이 쓰는 위젯
+    │   └── cctv_view.py        CCTV 화면 그리기
+    ├── main/                   관리 패널 창
+    │   ├── app.py              창 조립과 모델 연결
+    │   └── widgets/            header, section_cards, device_bar, harvest_log, detail_panel,
+    │                           growth_timeline, chart_grid, money_panel, control_bar, log_panel
+    ├── simulator/window.py     시뮬레이터 창
+    ├── mobile/                 모바일 앱 창
+    │   ├── window.py           창 틀 (클릭 처리, 탭 전환)
+    │   ├── status_bar.py       위 상태 표시줄
+    │   ├── nav_bar.py          아래 탭 바
+    │   └── tabs/               home, cctv, zone(+zone_cost), alerts — 탭 하나당 파일 하나
+    ├── cctv/window.py         CCTV 전체 창
+    └── price/window.py        시세 창
 ```
 
-**처음이라면 `main.py` → `common.py` → `visualize.py` 순서로 읽으세요.**
+**처음이라면 `core/plant.py` → `core/section.py` → `core/farm.py` → `ui/main/app.py` 순서로 읽으세요.**
 
-### `main.py` — 모델 (객체지향의 핵심)
+### `core/` — 모델 (객체지향의 핵심)
 
-| 클래스 | 하는 일 |
-|-|-|
-| `PlantProfile` | 작물별 적정 조건 (온도·습도·EC 범위, 재배 일수, 생육 단계) |
-| `Weather` | 바깥 날씨. 하루 주기로 기온·햇빛이 바뀌고 구름이 무작위로 낌 |
-| `Devices` | 한 구역의 장치(난방, 냉방, 환기, 가습, 제습, 조명)와 누적 사용량 |
-| `EnvState` | 온실 안 환경. 날씨와 장치에 따라 값이 변함 |
-| `PlantState` | 식물 상태. 건강도, 생장도, 병충해 |
-| `FarmSection` | 구역 하나. **측정값을 보고 장치를 켜고 끄는 제어 로직**이 `process()`에 있음 |
-| `Farm` | 구역 여러 개와 시간, 날씨, 수확 기록을 묶음 |
+| 클래스 | 파일 | 하는 일 |
+|-|-|-|
+| `PlantProfile` | `plant.py` | 작물별 적정 조건 (온도·습도·EC 범위, 재배 일수, 생육 단계) |
+| `Weather` | `weather.py` | 바깥 날씨. 하루 주기로 기온·햇빛이 바뀌고 구름이 무작위로 낌 |
+| `Devices` | `devices.py` | 한 구역의 장치(난방, 냉방, 환기, 가습, 제습, 조명)와 누적 사용량 |
+| `EnvState` | `environment.py` | 온실 안 환경. 날씨와 장치에 따라 값이 변함 |
+| `PlantState` | `plant.py` | 식물 상태. 건강도, 생장도, 병충해 |
+| `FarmSection` | `section.py` | 구역 하나. **측정값을 보고 장치를 켜고 끄는 제어 로직**이 `process()`에 있음 |
+| `Farm` | `farm.py` | 구역 여러 개와 시간, 날씨, 수확 기록을 묶음 |
 
-모델은 `print()`로 로그를 남기고, 화면 쪽(`visualize.py`의 `App.run`)이 그 출력을 가로채서 로그 창에 보여줍니다. 그래서 **`main.py`는 tkinter를 전혀 몰라도 됩니다.** 모델과 화면을 나눠 둔 덕분에 둘을 따로 고칠 수 있습니다.
+모델은 `print()`로 로그를 남기고, 화면 쪽(`ui/main/app.py`의 `App.run`)이 그 출력을 가로채서 로그 창에 보여줍니다. 그래서 **`core/`는 tkinter를 전혀 몰라도 됩니다.** 모델과 화면을 나눠 둔 덕분에 둘을 따로 고칠 수 있습니다.
 
 ### 어디를 고치면 될까?
 
 | 하고 싶은 것 | 고칠 곳 |
 |-|-|
-| 새 작물 추가 | `common.py`의 `PROFILES` 목록에 한 줄 추가 |
-| 제어 규칙 바꾸기 (예: 급수 기준) | `main.py`의 `FarmSection.process()` |
-| 환경 변화 공식 바꾸기 | `main.py`의 `EnvState.update()` |
-| 식물이 자라는 방식 바꾸기 | `main.py`의 `PlantState.update()` |
-| 화면 색 바꾸기 | `common.py`의 `COLOR` |
-| 각 창의 모양 | 그 창의 파일 (`visualize.py`, `simulator_window.py`, `mobile_window.py`) |
+| 새 작물 추가 | `core/catalog.py`의 `PROFILES` 목록에 한 줄 추가 |
+| 제어 규칙 바꾸기 (예: 급수 기준) | `core/section.py`의 `FarmSection.process()` |
+| 환경 변화 공식 바꾸기 | `core/environment.py`의 `EnvState.update()` |
+| 식물이 자라는 방식 바꾸기 | `core/plant.py`의 `PlantState.update()` |
+| 화면 색 바꾸기 | `ui/theme.py`의 `COLOR` |
+| 각 위젯의 모양 | `ui/` 아래 그 창 폴더의 위젯·탭 파일 |
 
 ---
 
@@ -217,7 +242,7 @@ git status          # 바뀐 파일 목록
 git diff            # 바뀐 내용 자세히
 
 # ⑤ 세이브할 파일 고르기 → 커밋
-git add common.py
+git add core/catalog.py
 git commit -m "작물에 고추 추가"
 
 # ⑥ GitHub에 올리기 (이 브랜치를 처음 올릴 때만 -u origin 브랜치이름)

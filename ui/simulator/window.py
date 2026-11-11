@@ -1,7 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
 
-from common import COLOR, FONT, ZONES
+from core.catalog import ZONES
+from ui.theme import COLOR, FONT
 
 
 class SimulatorWindow(tk.Toplevel):

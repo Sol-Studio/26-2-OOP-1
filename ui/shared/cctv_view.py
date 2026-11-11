@@ -1,5 +1,5 @@
 """구역별 CCTV 화면. 실제 영상이 아니라 구역 상태를 그려서 보여 준다."""
-from common import FONT
+from ui.theme import FONT
 
 FRUIT_COLOR = {"토마토": "#d63a2f", "딸기": "#e0405a", "파프리카": "#e8a91c", "오이": "#4f9a3a"}
 

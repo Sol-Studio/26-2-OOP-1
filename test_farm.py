@@ -3,13 +3,17 @@ import unittest
 
 import math
 
-import economics
-from market import Market
+from core import economics
+from core.market import Market
 from types import SimpleNamespace
 
-from main import (PlantProfile, EnvState, PlantState, FarmSection, Farm, Weather, Device, OnOffDevice,
-                  Heater, Cooler, Fan, GrowLight, Irrigation, Fertilizer, Sensor, SensorPanel, Readings,
-                  TemperatureSensor)
+from core.plant import PlantProfile, PlantState
+from core.environment import EnvState
+from core.section import FarmSection
+from core.farm import Farm
+from core.weather import Weather
+from core.devices import Device, OnOffDevice, Heater, Cooler, Fan, GrowLight, Irrigation, Fertilizer
+from core.sensors import Sensor, SensorPanel, Readings, TemperatureSensor
 
 DT = 1 / 6
 
@@ -233,8 +237,8 @@ class EconomicsTest(unittest.TestCase):
 class CctvTest(unittest.TestCase):
     def test_draws_every_section_state_without_error(self):
         import tkinter as tk
-        from cctv import draw_cctv
-        from common import make_farm
+        from ui.shared.cctv_view import draw_cctv
+        from core.catalog import make_farm
         try:
             root = tk.Tk()
         except tk.TclError:
@@ -275,7 +279,7 @@ class MarketTest(unittest.TestCase):
         m.sell("상추", 400)
         low = m.price("상추")
         self.assertLess(low, 8000 * 0.95)
-        import market
+        from core import market
         old, market.VOLATILITY = market.VOLATILITY, 0.0
         try:
             for _ in range(6 * 24 * 10):
@@ -348,8 +352,8 @@ class AutoReplantTest(unittest.TestCase):
 class PriceWindowTest(unittest.TestCase):
     def test_draws_for_each_range(self):
         import tkinter as tk
-        from common import make_farm
-        from price_window import PriceWindow
+        from core.catalog import make_farm
+        from ui.price.window import PriceWindow
         try:
             root = tk.Tk()
         except tk.TclError:

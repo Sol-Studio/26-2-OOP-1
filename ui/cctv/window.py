@@ -1,7 +1,8 @@
 import tkinter as tk
 
-from common import COLOR, FONT, ZONES
-from cctv import draw_cctv
+from core.catalog import ZONES
+from ui.theme import COLOR, FONT
+from ui.shared.cctv_view import draw_cctv
 
 
 class CctvWindow(tk.Toplevel):
