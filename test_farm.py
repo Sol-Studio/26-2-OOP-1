@@ -369,5 +369,72 @@ class PriceWindowTest(unittest.TestCase):
             w.refresh()
 
 
+class AccountsTest(unittest.TestCase):
+    def test_default_account_logs_in(self):
+        from core.auth import Accounts
+        self.assertTrue(Accounts().login("farmer", "evergrow"))
+
+    def test_wrong_password_or_unknown_user_fails(self):
+        from core.auth import Accounts
+        a = Accounts()
+        self.assertFalse(a.login("farmer", "wrong"))
+        self.assertFalse(a.login("nobody", "evergrow"))
+        self.assertEqual(a.failures, 2)
+
+    def test_password_is_not_stored_as_plain_text(self):
+        from core.auth import Accounts
+        a = Accounts({})
+        a.add("kim", "secret")
+        self.assertNotIn("secret", a.users["kim"])
+        self.assertTrue(a.login("kim", "secret"))
+
+    def test_locks_after_max_failures_and_success_resets_count(self):
+        from core.auth import Accounts
+        a = Accounts()
+        a.login("farmer", "x")
+        a.login("farmer", "evergrow")
+        self.assertEqual(a.failures, 0)
+        for _ in range(Accounts.MAX_FAILURES):
+            a.login("farmer", "x")
+        self.assertTrue(a.locked)
+        self.assertFalse(a.login("farmer", "evergrow"))
+
+
+class LoginWindowTest(unittest.TestCase):
+    def setUp(self):
+        import tkinter as tk
+        from ui.login.window import LoginWindow
+        try:
+            self.root = tk.Tk()
+        except tk.TclError:
+            self.skipTest("화면을 쓸 수 없는 환경")
+        self.addCleanup(self.root.destroy)
+        self.users = []
+        self.win = LoginWindow(self.root, on_success=self.users.append)
+
+    def fill(self, user_id, password):
+        self.win.user.delete(0, "end")
+        self.win.user.insert(0, user_id)
+        self.win.password.delete(0, "end")
+        self.win.password.insert(0, password)
+        self.win.submit()
+
+    def test_empty_fields_show_message(self):
+        self.fill("", "")
+        self.assertIn("모두 입력", self.win.message.cget("text"))
+        self.assertEqual(self.users, [])
+
+    def test_wrong_password_clears_field_and_counts(self):
+        self.fill("farmer", "wrong")
+        self.assertEqual(self.win.password.get(), "")
+        self.assertIn("1/5", self.win.message.cget("text"))
+        self.assertEqual(self.users, [])
+
+    def test_success_calls_back_with_user(self):
+        self.fill(" farmer ", "evergrow")
+        self.assertEqual(self.users, ["farmer"])
+        self.assertFalse(self.win.winfo_exists())
+
+
 if __name__ == "__main__":
     unittest.main()

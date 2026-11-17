@@ -20,9 +20,10 @@ from ui.simulator.window import SimulatorWindow
 class App:
     W, H = 1200, 720
 
-    def __init__(self, root):
+    def __init__(self, root, user=None):
         self.root = root
-        root.title("에버그로우 스마트팜 - 실시간 시뮬레이션")
+        self.user = user
+        root.title("에버그로우 스마트팜 - 실시간 시뮬레이션" + (f" ({user})" if user else ""))
         root.configure(bg=COLOR["bg"])
 
         self.canvas = tk.Canvas(root, width=self.W, height=self.H, bg=COLOR["bg"], highlightthickness=0)
