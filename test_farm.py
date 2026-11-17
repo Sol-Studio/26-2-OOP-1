@@ -27,9 +27,9 @@ def ideal_env(p=None):
     return EnvState(p or profile(), 18, 70, 600, 65, 30000, 1.3)
 
 
-def ctx(closed=False, hour=12.0):
+def ctx(closed=False, hour=12.0, outside=20.0):
     logs = []
-    return SimpleNamespace(closed=closed, hour=hour, log=logs.append), logs
+    return SimpleNamespace(closed=closed, hour=hour, outside=outside, log=logs.append), logs
 
 
 def readings(**kw):
@@ -125,6 +125,32 @@ class DeviceTest(unittest.TestCase):
         closed, _ = ctx(closed=True)
         fan.control(readings(temperature=20, co2=1300), p, closed)
         self.assertFalse(fan.on)                        # 격리 중엔 닫는다
+
+    def test_fan_does_not_let_in_cold_air_for_low_co2(self):
+        p = profile()                                   # 적정 온도 하한 15°C
+        warm, _ = ctx(outside=12)                       # 하한보다 3°C 낮은 정도는 괜찮다
+        fan = Fan()
+        fan.control(readings(temperature=18, co2=250), p, warm)
+        self.assertTrue(fan.on)                         # 바깥이 따뜻하면 CO2 보충 환기
+        cold, logs = ctx(outside=0)
+        fan.control(readings(temperature=18, co2=250), p, cold)
+        self.assertFalse(fan.on)                        # 바깥이 추우면 보온이 우선
+        fan.control(readings(temperature=18, co2=1300), p, cold)
+        self.assertTrue(fan.on)                         # CO2 과다는 추워도 환기
+
+    def test_fan_vents_heat_only_when_outside_is_cooler(self):
+        p = profile()                                   # 적정 온도 상한 22°C
+        fan = Fan()
+        hot, logs = ctx(outside=31)
+        fan.control(readings(temperature=25, co2=600), p, hot)
+        self.assertFalse(fan.on)                        # 바깥이 더 더우면 열어 봐야 더워진다
+        mild, _ = ctx(outside=16)
+        fan.control(readings(temperature=25, co2=600), p, mild)
+        self.assertTrue(fan.on)                         # 바깥이 시원하면 환기로 식힌다
+        fan.control(readings(temperature=25, co2=600), p, hot)
+        self.assertFalse(fan.on)                        # 열려 있다가 바깥이 더워지면 닫는다
+        fan.control(readings(temperature=18, co2=250), p, hot)
+        self.assertFalse(fan.on)                        # 바깥이 너무 더우면 CO2 부족으로도 안 연다
 
     def test_light_only_between_6_and_22(self):
         p, light = profile(), GrowLight()
@@ -367,6 +393,42 @@ class PriceWindowTest(unittest.TestCase):
         for d in (1, 7, 30):
             w.days.set(d)
             w.refresh()
+
+
+class ColdSnapTest(unittest.TestCase):
+    def test_every_crop_survives_three_days_of_cold_snap(self):
+        """시뮬레이터의 한파(바깥 평균 2°C, 최저 약 -5°C)에서도 난방으로 버텨야 한다."""
+        import contextlib, io
+        from core.catalog import make_farm
+        random.seed(7)
+        farm = make_farm()
+        farm.auto_harvest = False
+        farm.weather.base_temp = 12 - 10
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(6 * 72):
+                farm.process(DT)
+        dead = [s.label for s in farm.sections if not s.plant_state.alive]
+        self.assertEqual(dead, [])
+        for s in farm.sections:
+            self.assertGreater(s.plant_state.health, 50, s.label)
+
+
+class HeatWaveTest(unittest.TestCase):
+    def test_every_crop_survives_three_days_of_heat_wave(self):
+        """시뮬레이터의 폭염(바깥 평균 24°C, 최고 약 31°C)에서도 냉방으로 버텨야 한다."""
+        import contextlib, io
+        from core.catalog import make_farm
+        random.seed(7)
+        farm = make_farm()
+        farm.auto_harvest = False
+        farm.weather.base_temp = 12 + 12
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(6 * 72):
+                farm.process(DT)
+        dead = [s.label for s in farm.sections if not s.plant_state.alive]
+        self.assertEqual(dead, [])
+        for s in farm.sections:
+            self.assertGreater(s.plant_state.health, 50, s.label)
 
 
 class AccountsTest(unittest.TestCase):

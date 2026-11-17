@@ -29,7 +29,7 @@ class Device:
         """환경에 주는 영향을 fx에 더한다."""
 
     def control(self, r: Readings, profile: PlantProfile, ctx):
-        """측정값을 보고 상태를 정한다. ctx: closed(격리 중), hour, log"""
+        """측정값을 보고 상태를 정한다. ctx: closed(격리 중), hour, outside(바깥 기온), log"""
 
     def end_step(self):
         """한 단계가 끝날 때 1회성 상태를 비운다."""
@@ -123,8 +123,12 @@ class Humidifier(OnOffDevice):
 
 
 class Fan(OnOffDevice):
-    """환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음)"""
+    """환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음).
+    바깥 공기가 도움이 될 때만 연다 — 더워서 여는 건 바깥이 실내보다 시원할 때만,
+    CO2 부족으로 여는 건 바깥 기온이 적정 범위에서 OUTSIDE_MARGIN 이내일 때만."""
     key, label, power_kw = "fan", "환기팬", 0.3
+    # 환기 중엔 외기 교환이 0.95/h라 냉난방(±4°C/h)이 버티는 건 바깥이 적정 범위에서 약 5°C 벗어날 때까지
+    OUTSIDE_MARGIN = 5.0
 
     def contribute(self, fx):
         if self.on:
@@ -132,14 +136,20 @@ class Fan(OnOffDevice):
             fx.co2_exchange += 1.5
 
     def decide(self, r, p, ctx):
-        t_hi = p.temperature_range[1]
+        t_lo, t_hi = p.temperature_range
         c_lo, c_hi = p.co2_range
-        T, C = r.temperature, r.co2
+        T, C, out = r.temperature, r.co2, ctx.outside
+        cools = out < T                                   # 바깥이 더 시원해야 환기로 열을 뺄 수 있다
+        harsh = not (t_lo - self.OUTSIDE_MARGIN <= out <= t_hi + self.OUTSIDE_MARGIN)
         if ctx.closed:
             return False, "격리 중"
-        if T > t_hi + 2 or C > c_hi or C < c_lo:
+        if (T > t_hi + 2 and cools) or C > c_hi or (C < c_lo and not harsh):
             return True, f"{T:.1f}°C, CO2 {C:.0f}ppm"
-        if T < t_hi + 1 and c_lo + 80 < C < c_hi - 100:
+        if (T < t_hi + 1 or not cools) and C < c_hi - 100 and (C > c_lo + 80 or harsh):
+            if T >= t_hi + 1:
+                return False, f"바깥 {out:.1f}°C가 더 더움, 냉방 우선"
+            if C <= c_lo + 80:
+                return False, f"바깥 {out:.1f}°C, {'보온' if out < t_lo else '냉방'} 우선"
             return False, f"CO2 {C:.0f}ppm"
 
 

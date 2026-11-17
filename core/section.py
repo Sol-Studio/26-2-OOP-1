@@ -98,12 +98,13 @@ class FarmSection:
 
     def process(self, weather: Weather = None, hour: float = 12.0, dt: float = 1 / 6):
         """dt시간만큼 환경·식물을 진행시키고, 센서 측정값으로 장치를 조절한다."""
-        was_alive = self._advance(weather or Weather(), dt)
+        weather = weather or Weather()
+        was_alive = self._advance(weather, dt)
         if not (self.plant_state and self.plant_state.alive):
             self._shutdown(was_alive)
             return
         self._handle_pests(dt)
-        self._run_controls(hour)
+        self._run_controls(weather, hour)
 
     def _advance(self, weather: Weather, dt: float) -> bool:
         """환경과 식물을 dt만큼 진행한다. 진행 전에 식물이 살아 있었는지 돌려준다."""
@@ -146,9 +147,9 @@ class FarmSection:
             self.is_closed = False
             self.control_failures = 0
 
-    def _run_controls(self, hour: float):
+    def _run_controls(self, weather: Weather, hour: float):
         """센서를 한 번 읽고, 각 장치가 스스로 켜고 끌지 판단한다."""
         readings = self.sensors.read_all(self.env_state)
-        ctx = SimpleNamespace(closed=self.is_closed, hour=hour, log=self.log)
+        ctx = SimpleNamespace(closed=self.is_closed, hour=hour, outside=weather.temperature, log=self.log)
         for d in self.devices:
             d.control(readings, self.env_state.plant_profile, ctx)
