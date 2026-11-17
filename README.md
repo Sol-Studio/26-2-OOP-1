@@ -81,7 +81,13 @@ VS Code에서는 `파일 → 폴더 열기`로 이 `26-2-OOP-1` 폴더를 열면
 python visualize.py
 ```
 
-창이 3개 뜹니다.
+먼저 **로그인 창**이 뜹니다. 기본 계정으로 로그인하세요.
+
+| 아이디 | 비밀번호 |
+|-|-|
+| `farmer` | `evergrow` |
+
+빈칸이 있거나 틀리면 안내 문구가 나오고, **5번 연속 틀리면 프로그램이 종료**됩니다. 로그인에 성공하면 창이 3개 뜹니다.
 
 | 창 | 역할 |
 |-|-|
@@ -129,7 +135,7 @@ python visualize.py
 26-2-OOP-1/
 ├── main.md                 기획서 (해결할 문제, 입출력, 핵심 기능)
 ├── main.py                 화면 없이 모델만 돌려 보는 실행 파일
-├── visualize.py            ★ 프로그램 시작점 (관리 패널 창을 띄움)
+├── visualize.py            ★ 프로그램 시작점 (로그인 → 관리 패널 창)
 ├── test_farm.py            테스트
 ├── core/                   모델 (화면 없음, tkinter 모름)
 │   ├── plant.py            작물 적정 조건(PlantProfile), 식물 상태(PlantState)
@@ -141,9 +147,11 @@ python visualize.py
 │   ├── farm.py             농장 전체(Farm)
 │   ├── economics.py        재배 비용과 판매 수익 계산
 │   ├── market.py           작물 시세
+│   ├── auth.py             로그인 계정 확인 (비밀번호는 해시로만 저장)
 │   └── catalog.py          작물 목록(PROFILES)과 기본 농장 만들기
 └── ui/                         화면 (창별 폴더, 위젯·탭별 파일)
     ├── theme.py                색, 글꼴, 그래프 정의
+    ├── login/window.py         로그인 창 (첫 화면)
     ├── shared/                 여러 창이 같이 쓰는 위젯
     │   └── cctv_view.py        CCTV 화면 그리기
     ├── main/                   관리 패널 창
@@ -180,6 +188,7 @@ python visualize.py
 
 | 하고 싶은 것 | 고칠 곳 |
 |-|-|
+| 로그인 계정 추가 | `core/auth.py`의 `Accounts.add()` 또는 `DEFAULT_USERS` |
 | 새 작물 추가 | `core/catalog.py`의 `PROFILES` 목록에 한 줄 추가 |
 | 제어 규칙 바꾸기 (예: 급수 기준) | `core/section.py`의 `FarmSection.process()` |
 | 환경 변화 공식 바꾸기 | `core/environment.py`의 `EnvState.update()` |
