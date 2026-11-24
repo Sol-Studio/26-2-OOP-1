@@ -1,0 +1,6 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# pydantic 2.14+의 pydantic_core는 Windows '스마트 앱 컨트롤'에 막히는 경우가 있어 한 단계 낮춘다
+pydantic>=2.9,<2.14
+# 테스트(test_server.py)용
+httpx>=0.27
