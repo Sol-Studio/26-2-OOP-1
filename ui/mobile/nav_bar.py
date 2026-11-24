@@ -12,10 +12,10 @@ def draw_nav(win):
         x1 = k * w
         on = key == win.tab
         if on:
-            c.create_rectangle(x1 + w / 2 - 18, top + 6, x1 + w / 2 + 18, top + 9, fill=COLOR["healthy"], outline="")
+            c.create_rectangle(x1 + w / 2 - 18, top + 6, x1 + w / 2 + 18, top + 9, fill=COLOR["brand"], outline="")
         c.create_text(x1 + w / 2, top + win.NAV / 2 + 2, text=name, font=(FONT, 10, "bold" if on else "normal"),
-                      fill=COLOR["healthy"] if on else COLOR["muted"])
+                      fill=COLOR["ink"] if on else COLOR["subtle"])
         if key == "alerts" and warns:
             c.create_oval(x1 + w / 2 + 20, top + 12, x1 + w / 2 + 38, top + 28, fill=COLOR["closed"], outline="")
-            c.create_text(x1 + w / 2 + 29, top + 20, text=str(min(warns, 99)), font=(FONT, 7, "bold"), fill="#ffffff")
+            c.create_text(x1 + w / 2 + 29, top + 20, text=str(min(warns, 99)), font=(FONT, 7, "bold"), fill=COLOR["on_text"])
         win.button((x1, top, x1 + w, win.H), lambda key=key: win.go(key))

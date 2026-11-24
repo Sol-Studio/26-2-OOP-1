@@ -13,6 +13,6 @@ def draw_header(c, farm):
     # 하루 진행 막대 (낮/밤)
     x0, x1, y = 16, 560, 44
     c.create_rectangle(x0, y, x1, y + 6, fill=COLOR["night"], outline="")
-    c.create_rectangle(x0 + (x1 - x0) * 6 / 24, y, x0 + (x1 - x0) * 18 / 24, y + 6, fill="#f5dc8a", outline="")
+    c.create_rectangle(x0 + (x1 - x0) * 6 / 24, y, x0 + (x1 - x0) * 18 / 24, y + 6, fill=COLOR["day"], outline="")
     cx = x0 + (x1 - x0) * h / 24
     c.create_oval(cx - 5, y - 2, cx + 5, y + 8, fill=COLOR["ink"], outline="")

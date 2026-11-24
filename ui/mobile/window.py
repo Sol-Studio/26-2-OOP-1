@@ -13,7 +13,7 @@ class MobileWindow(tk.Toplevel):
     TABS = TABS
 
     def __init__(self, app):
-        super().__init__(app.root, bg="#111814")
+        super().__init__(app.root, bg=COLOR["dark"])
         self.app = app
         self.tab = "home"
         self.buttons = []      # ((x1, y1, x2, y2), 누르면 할 일)

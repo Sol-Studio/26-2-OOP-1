@@ -12,8 +12,8 @@ def draw_devices(c, d, x, y, small=False):
         if small:
             c.create_rectangle(xx, y - 7, xx + w - 2, y + 7, fill=COLOR["on"] if on else COLOR["off"], outline="")
             c.create_text(xx + w / 2 - 1, y, text=name[0], font=(FONT, 7, "bold"),
-                          fill="#ffffff" if on else COLOR["muted"])
+                          fill=COLOR["on_text"] if on else COLOR["muted"])
         else:
             c.create_rectangle(xx, y - 11, xx + w - 4, y + 11, fill=COLOR["on"] if on else COLOR["off"], outline="")
             c.create_text(xx + (w - 4) / 2, y, text=name, font=(FONT, 8, "bold"),
-                          fill="#ffffff" if on else COLOR["muted"])
+                          fill=COLOR["on_text"] if on else COLOR["muted"])

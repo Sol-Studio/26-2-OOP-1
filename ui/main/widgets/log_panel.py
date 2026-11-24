@@ -21,8 +21,8 @@ class LogPanel:
                             command=self.refill).pack(side="left", padx=1)
         self.entries = deque(maxlen=3000)     # (구역, 글, 경고 여부)
 
-        self.listbox = tk.Listbox(root, height=7, font=(FONT, 9), bg="#18201b", fg="#d6e6d9",
-                                  selectbackground="#2f6b45", borderwidth=0, highlightthickness=0)
+        self.listbox = tk.Listbox(root, height=7, font=(FONT, 9), bg=COLOR["dark"], fg=COLOR["dark_text"],
+                                  selectbackground=COLOR["dark_select"], borderwidth=0, highlightthickness=0)
         self.listbox.pack(fill="both", expand=True, padx=12, pady=(4, 12))
 
     def clear(self):
@@ -47,7 +47,7 @@ class LogPanel:
         _, text, warn = entry
         self.listbox.insert("end", text)
         if warn:
-            self.listbox.itemconfig("end", fg="#f4a97c")
+            self.listbox.itemconfig("end", fg=COLOR["dark_warn"])
 
     def refill(self):
         self.listbox.delete(0, "end")

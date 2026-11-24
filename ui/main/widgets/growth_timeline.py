@@ -15,7 +15,7 @@ def draw_growth(c, s, ox, y, right):
 
     xmap = lambda g: x1 + (x2 - x1) * g / 100
     current = p.stage(ps.growth)
-    fill = COLOR["dead"] if not ps.alive else COLOR["ready"] if ps.ready else COLOR["healthy"]
+    fill = COLOR["dead"] if not ps.alive else COLOR["ready"] if ps.ready else COLOR["plot"]
     c.create_rectangle(x1, top, x2, bot, fill=COLOR["off"], outline="")
     c.create_rectangle(x1, top, xmap(ps.growth), bot, fill=fill, outline="")
     stages = p.stages

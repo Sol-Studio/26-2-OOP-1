@@ -2,9 +2,9 @@ import tkinter as tk
 from tkinter import ttk
 
 from core.catalog import PROFILES
-from ui.theme import COLOR, FONT
+from ui.theme import COLOR, FONT, SEED
 
-CROP_COLORS = ["#2f7d4a", "#d63a2f", "#e0405a", "#e8a91c", "#1f6fb2", "#7a4fb0"]
+CROP_COLORS = [SEED["green-700"], SEED["red-700"], SEED["purple-700"], SEED["yellow-600"], SEED["blue-700"], SEED["carrot-600"]]
 STEPS_PER_DAY = 144
 MAX_POINTS = 360          # 선 하나에 그릴 최대 점 수 (기간이 길면 솎아서 그린다)
 
@@ -86,7 +86,7 @@ class PriceWindow(tk.Toplevel):
             c.create_text(lx + 20, yy + 20, anchor="w", text=f"{now:,.0f}원", font=("Consolas", 10), fill=COLOR["ink"])
             c.create_text(self.W - 12, yy, anchor="e", font=(FONT, 9, "bold"),
                           text=f"{'▲' if change >= 0 else '▼'} {abs(change):.1f}%",
-                          fill=COLOR["closed"] if change >= 0 else COLOR["plot"])
+                          fill=COLOR["closed"] if change >= 0 else COLOR["down"])
             c.create_text(self.W - 12, yy + 20, anchor="e", text=f"기준 {base:,}", font=(FONT, 8), fill=COLOR["muted"])
         c.create_text(x1, self.H - 12, anchor="w", font=(FONT, 8), fill=COLOR["muted"],
                       text="많이 수확해 팔면 그 작물 시세가 내려가고, 시간이 지나면 기준가로 돌아옵니다. 변동률은 하루 전 대비입니다.")

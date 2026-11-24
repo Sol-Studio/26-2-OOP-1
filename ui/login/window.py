@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from core.auth import Accounts
-from ui.theme import COLOR, FONT
+from ui.theme import COLOR, FONT, apply_style
 
 
 class LoginWindow(tk.Frame):
@@ -16,9 +16,10 @@ class LoginWindow(tk.Frame):
         root.title("에버그로우 - 로그인")
         root.configure(bg=COLOR["bg"])
         root.resizable(False, False)
+        apply_style(root)
         self.pack()
 
-        tk.Label(self, text="에버그로우 스마트팜", bg=COLOR["bg"], fg=COLOR["healthy"],
+        tk.Label(self, text="에버그로우 스마트팜", bg=COLOR["bg"], fg=COLOR["brand"],
                  font=(FONT, 16, "bold")).pack(anchor="w")
         tk.Label(self, text="관리자 계정으로 로그인하세요.", bg=COLOR["bg"], fg=COLOR["muted"],
                  font=(FONT, 9)).pack(anchor="w", pady=(2, 16))
@@ -34,7 +35,7 @@ class LoginWindow(tk.Frame):
         buttons = tk.Frame(self, bg=COLOR["bg"])
         buttons.pack(fill="x")
         ttk.Button(buttons, text="종료", command=root.destroy).pack(side="right")
-        ttk.Button(buttons, text="로그인", command=self.submit).pack(side="right", padx=(0, 6))
+        ttk.Button(buttons, text="로그인", style="Brand.TButton", command=self.submit).pack(side="right", padx=(0, 6))
 
         root.bind("<Return>", lambda e: self.submit())
         self.user.focus_set()

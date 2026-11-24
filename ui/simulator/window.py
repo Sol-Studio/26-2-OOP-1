@@ -17,7 +17,9 @@ class SimulatorWindow(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.withdraw)   # 닫아도 관리 패널에서 다시 열 수 있게 숨기기만
 
         def section(text):
-            frame = tk.LabelFrame(self, text=text, bg=COLOR["bg"], font=(FONT, 9, "bold"), padx=8, pady=6)
+            frame = tk.LabelFrame(self, text=text, bg=COLOR["bg"], fg=COLOR["muted"], font=(FONT, 9, "bold"), padx=8, pady=6,
+                                  bd=0, highlightthickness=1,
+                                  highlightbackground=COLOR["line"], highlightcolor=COLOR["line"])
             frame.pack(fill="x", pady=(0, 8))
             return frame
 
@@ -30,16 +32,19 @@ class SimulatorWindow(tk.Toplevel):
         ttk.Button(run, text="10분 진행", command=app.step).pack(side="left", padx=4)
         ttk.Button(run, text="초기화", command=app.reset).pack(side="left")
         speed = section("속도 (ms / 10분)")
-        self.speed = tk.Scale(speed, from_=20, to=1000, orient="horizontal", length=260,
-                              bg=COLOR["bg"], highlightthickness=0)
-        self.speed.set(120)
-        self.speed.pack(fill="x")
+        self.speed = tk.IntVar(value=120)
+        tk.Label(speed, textvariable=self.speed, width=5, anchor="e", bg=COLOR["bg"], fg=COLOR["ink"],
+                 font=(FONT, 9)).pack(side="right")
+        tk.Scale(speed, from_=20, to=1000, orient="horizontal", length=220, variable=self.speed, showvalue=0,
+                 bd=0, highlightthickness=0, width=12, sliderlength=22, sliderrelief="flat", bg=COLOR["brand"],
+                 activebackground=COLOR["brand_pressed"], troughcolor=COLOR["line"]
+                 ).pack(side="left", fill="x", expand=True, pady=4)
 
         weather = section("바깥 날씨")
         self.weather = tk.IntVar(value=0)
         for text, delta in self.WEATHER:
             tk.Radiobutton(weather, text=text, value=delta, variable=self.weather, font=(FONT, 9),
-                           bg=COLOR["bg"], activebackground=COLOR["bg"],
+                           bg=COLOR["bg"], activebackground=COLOR["bg"], fg=COLOR["ink"], selectcolor=COLOR["card"],
                            command=lambda: app.set_weather(self.weather.get())).pack(anchor="w")
 
         pests = section("병충해 발생")

@@ -1,5 +1,5 @@
 """구역별 CCTV 화면. 실제 영상이 아니라 구역 상태를 그려서 보여 준다."""
-from ui.theme import FONT
+from ui.theme import COLOR, FONT
 
 FRUIT_COLOR = {"토마토": "#d63a2f", "딸기": "#e0405a", "파프리카": "#e8a91c", "오이": "#4f9a3a"}
 
@@ -79,7 +79,7 @@ def draw_cctv(c, x, y, w, h, section, farm, cam, compact=False):
 
     # 구역 격리 (차폐막)
     if section.is_closed:
-        c.create_rectangle(x, y, x + w, y + h, fill="#c0582a", outline="", stipple="gray25")
+        c.create_rectangle(x, y, x + w, y + h, fill=COLOR["closed"], outline="", stipple="gray25")
         c.create_text(x + w / 2, y + h / 2, text="격리·방제 중", font=(FONT, 9 if compact else 12, "bold"), fill="#ffffff")
 
     # 급수·살포 표시
@@ -89,11 +89,11 @@ def draw_cctv(c, x, y, w, h, section, farm, cam, compact=False):
             c.create_line(wx, soil_y - h * 0.18, wx, soil_y, fill="#4aa3df", dash=(2, 3))
 
     # CCTV 겉모습: 테두리, 녹화 표시, 카메라 이름, 시각
-    c.create_rectangle(x, y, x + w, y + h, outline="#111814", width=2)
+    c.create_rectangle(x, y, x + w, y + h, outline=COLOR["dark"], width=2)
     fs = 7 if compact else 8
     blink = int(farm.hours * 6) % 2 == 0
-    c.create_oval(x + 6, y + 6, x + 12, y + 12, fill="#d6322b" if blink else wall, outline="")
-    c.create_text(x + 16, y + 9, anchor="w", text="REC", font=("Consolas", fs, "bold"), fill="#d6322b")
+    c.create_oval(x + 6, y + 6, x + 12, y + 12, fill=COLOR["closed"] if blink else wall, outline="")
+    c.create_text(x + 16, y + 9, anchor="w", text="REC", font=("Consolas", fs, "bold"), fill=COLOR["closed"])
     tag = f"CAM {cam:02d}"
     c.create_text(x + w - 6, y + 9, anchor="e", text=tag, font=("Consolas", fs, "bold"),
                   fill="#1d2620" if day else "#e8efe9")

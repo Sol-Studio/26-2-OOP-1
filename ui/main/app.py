@@ -4,7 +4,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 from core.catalog import DT, make_profile, make_farm
-from ui.theme import HISTORY, COLOR, CHARTS
+from ui.theme import HISTORY, COLOR, CHARTS, apply_style
 from ui.cctv.window import CctvWindow
 from ui.main.widgets.control_bar import ControlBar
 from ui.main.widgets.detail_panel import draw_detail
@@ -25,6 +25,7 @@ class App:
         self.user = user
         root.title("에버그로우 스마트팜 - 실시간 시뮬레이션" + (f" ({user})" if user else ""))
         root.configure(bg=COLOR["bg"])
+        apply_style(root)
 
         self.canvas = tk.Canvas(root, width=self.W, height=self.H, bg=COLOR["bg"], highlightthickness=0)
         self.canvas.pack(padx=12, pady=(12, 6))

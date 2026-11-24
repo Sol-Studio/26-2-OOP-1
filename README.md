@@ -73,6 +73,8 @@ VS Code에서는 `파일 → 폴더 열기`로 이 `26-2-OOP-1` 폴더를 열면
 
 ---
 
+> **화면 디자인:** 색·글꼴은 당근마켓의 공개 디자인 시스템 [SEED Design](https://github.com/daangn/seed-design)(Apache-2.0) 라이트 테마 토큰을 따릅니다. SEED는 Windows에서 [Pretendard](https://github.com/orioncactus/pretendard) 글꼴을 쓰므로, 설치돼 있으면 자동으로 Pretendard를, 없으면 맑은 고딕을 씁니다(설치는 선택).
+
 ## 2. 실행하기
 
 프로젝트 폴더에서:
@@ -194,7 +196,7 @@ python visualize.py
 | 제어 규칙 바꾸기 (예: 급수 기준) | `core/section.py`의 `FarmSection.process()` |
 | 환경 변화 공식 바꾸기 | `core/environment.py`의 `EnvState.update()` |
 | 식물이 자라는 방식 바꾸기 | `core/plant.py`의 `PlantState.update()` |
-| 화면 색 바꾸기 | `ui/theme.py`의 `COLOR` |
+| 화면 색 바꾸기 | `ui/theme.py`의 `COLOR` (SEED 토큰 이름이 주석으로 달려 있음) |
 | 각 위젯의 모양 | `ui/` 아래 그 창 폴더의 위젯·탭 파일 |
 
 ---

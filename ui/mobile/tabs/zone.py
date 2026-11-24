@@ -1,6 +1,6 @@
 """구역 탭: 생육 카드, 비용, 환경 값, 장치 상태, 수확·갈아엎기 버튼"""
 from ui.mobile.tabs.zone_cost import draw_cost
-from ui.theme import CHARTS, COLOR, FONT
+from ui.theme import CHARTS, COLOR, FONT, health_color
 
 
 def draw_zone(win):
@@ -21,7 +21,7 @@ def draw_zone(win):
         c.create_text(28, y + 16, anchor="w", text=p.stage(ps.growth), font=(FONT, 11, "bold"), fill=COLOR["ink"])
         c.create_text(win.W - 28, y + 16, anchor="e", text=info, font=(FONT, 9), fill=COLOR["muted"])
         for j, (name, v, bc) in enumerate([("생장", ps.growth, COLOR["ready"] if ps.ready else COLOR["plot"]),
-                                           ("건강", ps.health, col)]):
+                                           ("건강", ps.health, health_color(ps.health))]):
             yy = y + 42 + j * 22
             c.create_text(28, yy, anchor="w", text=name, font=(FONT, 8), fill=COLOR["muted"])
             win.bar(66, win.W - 64, yy - 3, v, bc)
@@ -54,14 +54,14 @@ def draw_zone(win):
         x1, y1 = 16 + (k % 4) * (dw + 6), y + (k // 4) * (dh + 6)
         c.create_rectangle(x1, y1, x1 + dw, y1 + dh, fill=COLOR["on"] if on else COLOR["off"], outline="")
         c.create_text(x1 + dw / 2, y1 + dh / 2, text=name, font=(FONT, 8, "bold"),
-                      fill="#ffffff" if on else COLOR["muted"])
+                      fill=COLOR["on_text"] if on else COLOR["muted"])
     y += 2 * (dh + 6) + 6
 
     # 동작 버튼
     bw = (win.W - 32 - 8) / 2
-    for k, (text, action, fill) in enumerate([("수확 / 정리", app.harvest, COLOR["healthy"]),
+    for k, (text, action, fill) in enumerate([("수확 / 정리", app.harvest, COLOR["brand"]),
                                               ("갈아엎기", app.plow, COLOR["closed"])]):
         x1 = 16 + k * (bw + 8)
         c.create_rectangle(x1, y, x1 + bw, y + 40, fill=fill, outline="")
-        c.create_text(x1 + bw / 2, y + 20, text=text, font=(FONT, 10, "bold"), fill="#ffffff")
+        c.create_text(x1 + bw / 2, y + 20, text=text, font=(FONT, 10, "bold"), fill=COLOR["on_text"])
         win.button((x1, y, x1 + bw, y + 40), action)
