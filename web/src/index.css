@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+/* 색은 당근마켓 SEED Design(Apache-2.0) 라이트 테마 토큰을 따른다 (예전 ui/theme.py와 같은 값). */
+@theme {
+  --font-sans: "Pretendard Variable", Pretendard, "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --color-bg: #f3f4f5;            /* bg.layer-basement */
+  --color-card: #ffffff;          /* bg.layer-default */
+  --color-pressed: #f7f8f9;
+  --color-line: #dcdee3;          /* stroke.neutral-weak */
+  --color-ink: #1a1c20;           /* fg.neutral */
+  --color-muted: #555d6d;         /* fg.neutral-muted */
+  --color-subtle: #868b94;        /* fg.neutral-subtle */
+  --color-brand: #ff6600;         /* carrot-600 */
+  --color-brand-pressed: #e14d00;
+  --color-brand-weak: #fff2ec;
+  --color-positive: #079171;      /* 정상·이익 */
+  --color-critical: #fa342c;      /* 격리·범위 이탈·손실 */
+  --color-critical-weak: #fdf0f0;
+  --color-ready: #217cf9;         /* 수확 가능 */
+  --color-warning: #c49725;
+  --color-dead: #868b94;
+  --color-dead-bg: #eeeff1;
+  --color-off: #eeeff1;
+  --color-band: #d9f6e9;          /* 그래프 적정 범위 띠 */
+  --color-night: #eeeff1;
+  --color-day: #fbdc65;
+  --color-dark: #1a1c20;
+  --color-dark-2: #2a3038;
+  --color-dark-text: #dcdee3;
+  --color-dark-warn: #ff9364;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* 키보드로 움직일 때 지금 어디에 있는지 보이게 */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* 첫 화면 '환영합니다': 살짝 커지며 나타난다 */
+@keyframes welcome {
+  from { opacity: 0; transform: translateY(12px) scale(0.96); letter-spacing: 0.08em; }
+  to { opacity: 1; transform: none; }
+}
