@@ -10,6 +10,7 @@ export default function HarvestLog() {
 
   return (
     <Card
+      data-tour="harvest"
       title="수확 기록"
       aside={`총 ${harvestCount}회 · ${harvestKg.toFixed(1)}kg · 매출 ${won(totals.revenue)} · 비용 ${won(totals.cost)} · 순이익 ${signedWon(totals.profit)}`}
     >

@@ -13,7 +13,7 @@ export default function SimulatorBar() {
   if (!meta) return null;
 
   return (
-    <section aria-label="시뮬레이터" className="bg-dark text-dark-text">
+    <section aria-label="시뮬레이터" data-tour="simulator" className="bg-dark text-dark-text">
       <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-x-6 gap-y-2 px-4 py-2 text-sm lg:px-6">
         <span className="text-xs font-bold text-subtle">시뮬레이터</span>
 

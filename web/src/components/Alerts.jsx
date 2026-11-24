@@ -55,7 +55,7 @@ export function AlertBell() {
   }, [open]);
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} data-tour="alerts" className="relative">
       <button
         onClick={() => {
           setOpen(!open);

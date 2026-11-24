@@ -14,7 +14,7 @@ export default function ControlBar() {
   const anyReady = state.sections.some((x) => x.plant?.ready);
 
   return (
-    <div className="rounded-xl bg-card p-3 ring-1 ring-line">
+    <div data-tour="controls" className="rounded-xl bg-card p-3 ring-1 ring-line">
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted">작물</span>

@@ -10,7 +10,7 @@ export default function DeviceControls({ section: s, className = "grid-cols-2 2x
   const modesOf = Object.fromEntries((meta?.devices ?? []).map((x) => [x.key, x.modes]));
 
   return (
-    <ul className={`grid gap-2 ${className}`} aria-label="장치 제어">
+    <ul data-tour="devices" className={`grid gap-2 ${className}`} aria-label="장치 제어">
       {DEVICES.map(([key, name]) => {
         const on = deviceOn(key, d);
         const mode = d.modes[key];

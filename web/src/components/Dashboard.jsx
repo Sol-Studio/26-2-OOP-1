@@ -42,7 +42,7 @@ export default function Dashboard({ intro = false, onIntroEnd }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
       <div className="flex min-w-0 flex-col gap-4">
-        <div ref={slot} className="h-[clamp(320px,46vh,520px)]">
+        <div ref={slot} data-tour="greenhouse" className="h-[clamp(320px,46vh,520px)]">
           <div style={style} onTransitionEnd={finish} className="h-full overflow-hidden rounded-xl ring-1 ring-line">
             <Greenhouse intro={intro} onIntroDone={shrink} />
           </div>

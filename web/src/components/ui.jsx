@@ -2,9 +2,9 @@ import { useFarm } from "../lib/farm.jsx";
 
 /** 여러 화면이 같이 쓰는 작은 조각 */
 
-export function Card({ title, aside, className = "", children }) {
+export function Card({ title, aside, className = "", children, ...rest }) {
   return (
-    <section className={`rounded-xl bg-card p-4 ring-1 ring-line ${className}`}>
+    <section {...rest} className={`rounded-xl bg-card p-4 ring-1 ring-line ${className}`}>
       {(title || aside) && (
         <header className="mb-3 flex items-baseline justify-between gap-3">
           {title && <h2 className="text-sm font-bold text-ink">{title}</h2>}

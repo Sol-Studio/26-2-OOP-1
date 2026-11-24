@@ -15,7 +15,7 @@ export default function ChartGrid({ section: s }) {
   if (!meta || !hist) return null;
 
   return (
-    <div className="mt-4">
+    <div data-tour="charts" className="mt-4">
       <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
         {meta.metrics.map((m, k) => (
           <MetricChart key={m.key} metric={m} band={s.bands[k]} values={hist.map((h) => h[k])} nights={nights} times={times} />

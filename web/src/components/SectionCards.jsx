@@ -6,7 +6,7 @@ import { Bar } from "./ui.jsx";
 export default function SectionCards() {
   const { state, selected, select } = useFarm();
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div data-tour="cards" className="grid grid-cols-2 gap-3 sm:grid-cols-3">
       {state.sections.map((s) => {
         const ps = s.plant;
         const sel = s.index === selected;

@@ -10,6 +10,24 @@ import MobileApp from "./components/mobile/MobileApp.jsx";
 import ConfirmDialog from "./components/ConfirmDialog.jsx";
 import { AlertToasts } from "./components/Alerts.jsx";
 import { useReducedMotion } from "./lib/motion.js";
+import Tour from "./components/tour/Tour.jsx";
+
+// 사용 안내를 이미 본 계정 (이 브라우저에서만 기억한다)
+const TOUR_KEY = (user) => `evergrow.tour.${user}`;
+function tourSeen(user) {
+  try {
+    return localStorage.getItem(TOUR_KEY(user)) === "1";
+  } catch {
+    return false;
+  }
+}
+function markTourSeen(user) {
+  try {
+    localStorage.setItem(TOUR_KEY(user), "1");
+  } catch {
+    /* 저장이 막혀 있으면 다음 로그인 때 다시 보여 줄 뿐이다 */
+  }
+}
 
 // chart.js는 시세 화면을 열 때 따로 받는다
 const PricePanel = lazy(() => import("./components/PricePanel.jsx"));
@@ -53,10 +71,29 @@ function useNarrow() {
 }
 
 function Shell({ intro, onIntroEnd }) {
-  const { state, toast } = useFarm();
+  const { state, toast, user } = useFarm();
   const [view, setView] = useState("panel");
   const narrow = useNarrow();
   const still = useReducedMotion();
+  const introOn = intro && !still && !narrow; // 첫 화면 연출이 실제로 재생되는지
+  const [tour, setTour] = useState(false);
+
+  // 처음 로그인했으면 첫 화면 연출이 끝난 뒤 새싹봇이 사용법을 안내한다 (휴대폰 폭은 화면 구성이 달라 생략)
+  useEffect(() => {
+    if (state && !narrow && !introOn && !tourSeen(user)) {
+      setView("panel");
+      setTour(true);
+    }
+  }, [!!state, narrow, introOn, user]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openTour = () => {
+    setView("panel");
+    setTour(true);
+  };
+  const closeTour = () => {
+    markTourSeen(user);
+    setTour(false);
+  };
 
   if (!state) {
     return (
@@ -80,10 +117,10 @@ function Shell({ intro, onIntroEnd }) {
 
   return (
     <div className="min-h-full">
-      <TopBar view={view} setView={setView} />
+      <TopBar view={view} setView={setView} onHelp={openTour} />
       <SimulatorBar />
       <main className="mx-auto max-w-[1600px] px-4 pb-6 pt-4 lg:px-6">
-        {view === "panel" && <Dashboard intro={intro && !still} onIntroEnd={onIntroEnd} />}
+        {view === "panel" && <Dashboard intro={introOn} onIntroEnd={onIntroEnd} />}
         {view === "prices" && (
           <Suspense fallback={<p className="py-10 text-center text-sm text-muted">시세 화면을 불러오는 중…</p>}>
             <PricePanel />
@@ -99,6 +136,7 @@ function Shell({ intro, onIntroEnd }) {
       <AlertToasts />
       <ConfirmDialog />
       <Toast text={toast} />
+      {tour && <Tour onClose={closeTour} />}
     </div>
   );
 }

@@ -10,7 +10,7 @@ const VIEWS = [
 ];
 
 /** 맨 위: 날짜·계절·시각, 바깥 날씨, 하루 진행 막대, 화면 전환, 경고 알림, 로그아웃 */
-export default function TopBar({ view, setView }) {
+export default function TopBar({ view, setView, onHelp }) {
   const { state, user, logout, connected } = useFarm();
   const { day, hour, weather: w } = state;
 
@@ -35,7 +35,7 @@ export default function TopBar({ view, setView }) {
           </div>
         </div>
 
-        <nav className="flex rounded-lg bg-bg p-1" aria-label="화면">
+        <nav data-tour="tabs" className="flex rounded-lg bg-bg p-1" aria-label="화면">
           {VIEWS.map(([key, name]) => (
             <button
               key={key}
@@ -51,6 +51,9 @@ export default function TopBar({ view, setView }) {
         </nav>
 
         <div className="flex items-center gap-3 text-sm">
+          <button onClick={onHelp} className="rounded-md px-2.5 py-1.5 text-muted ring-1 ring-line hover:bg-pressed hover:text-ink" title="새싹봇 사용 안내 다시 보기">
+            도움말
+          </button>
           <AlertBell />
           <span className="flex items-center gap-1.5 text-muted" title={connected ? "서버와 연결됨" : "다시 연결하는 중"}>
             <span className={`size-2 rounded-full ${connected ? "bg-positive" : "bg-critical"}`} />

@@ -59,3 +59,17 @@ body {
   from { opacity: 0; transform: translateY(12px) scale(0.96); letter-spacing: 0.08em; }
   to { opacity: 1; transform: none; }
 }
+
+/* 튜토리얼 새싹봇 몸짓 */
+@keyframes bot-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes bot-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes bot-wave { 0%, 100% { transform: rotate(0deg); } 50% { transform: rotate(-35deg); } }
+@keyframes bot-talk { 0%, 100% { transform: scaleY(0.6); } 50% { transform: scaleY(1.3); } }
+@keyframes bot-sprout { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@keyframes bot-hop { 0% { transform: translateY(0) scale(1, 1); } 15% { transform: translateY(0) scale(1.08, 0.9); } 45% { transform: translateY(-34px) scale(0.95, 1.06); } 80% { transform: translateY(0) scale(1.06, 0.93); } 100% { transform: translateY(0) scale(1, 1); } }
+.bot-bob { animation: bot-bob 2.2s ease-in-out infinite; }
+.bot-blink { animation: bot-blink 3.6s infinite; }
+.bot-wave { animation: bot-wave 0.7s ease-in-out infinite; }
+.bot-talk { animation: bot-talk 0.28s ease-in-out infinite; }
+.bot-sprout { animation: bot-sprout 1.6s ease-in-out infinite; }
+.bot-hop { animation: bot-hop 0.6s ease-out; }
