@@ -6,6 +6,7 @@ import { useFarm } from "../../lib/farm.jsx";
 import { MODE_NAMES, TONE_BG, TONE_TEXT, clock, deviceLabel, deviceOn, num, signedWon } from "../../lib/format.js";
 import { useReducedMotion } from "../../lib/motion.js";
 import { BURST_SECONDS } from "./HarvestBurst.jsx";
+import Mascot from "./Mascot.jsx";
 import Zone, { LABEL_OFFSET, zonePosition } from "./Zone.jsx";
 
 const OVERVIEW = { pos: [0, 12, 15.5], target: [0, 0.3, 0.8] };
@@ -41,6 +42,10 @@ export default function Greenhouse3D({ focus = false, compact = false, intro = f
   const [introRunning, setIntroRunning] = useState(intro);
   const bursts = useHarvestBursts(state.harvestEvents, state.sections);
   const tags = useRef(new Map()); // 수확 금액 표시 div (연출 id → 요소)
+  const mascotBubble = useRef(null);
+  const [mascotSays, setMascotSays] = useState(null); // { text, zone } — 새싹봇 말풍선
+  const onMascotMessage = useCallback((text, zone) => setMascotSays(text ? { text, zone } : null), []);
+  const pestZones = state.sections.filter((x) => x.plant?.alive && x.plant.pests).map((x) => x.index);
 
   const flyTo = useCallback(() => {
     setOverview(false);
@@ -100,6 +105,7 @@ export default function Greenhouse3D({ focus = false, compact = false, intro = f
         />
         <LabelTracker labels={labels} count={state.sections.length} />
         <HarvestTagTracker tags={tags} bursts={bursts} />
+        <Mascot pestZones={pestZones} bubble={mascotBubble} onMessage={onMascotMessage} onPick={pick} />
       </Canvas>
 
       {/* 구역 이름표: 3D 위치를 매 프레임 화면 좌표로 바꿔 옮긴다 */}
@@ -136,6 +142,30 @@ export default function Greenhouse3D({ focus = false, compact = false, intro = f
       </div>
 
       {hoverDevice && <DeviceTip tipRef={tip} hover={hoverDevice} sections={state.sections} />}
+
+      {/* 새싹봇 말풍선: 머리 위에 붙어 다닌다 (위치는 Mascot이 매 프레임 옮긴다). 병충해 알림이면 누르면 그 구역으로 */}
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div ref={mascotBubble} className="absolute left-0 top-0">
+          {mascotSays ? (
+            <button
+              onClick={() => mascotSays.zone != null && pick(mascotSays.zone)}
+              className={`pointer-events-auto relative mb-2 max-w-60 rounded-xl px-3 py-2 text-left text-xs shadow-lg ${
+                mascotSays.zone != null ? "bg-card text-ink ring-2 ring-critical" : "bg-card text-ink ring-2 ring-positive"
+              }`}
+            >
+              <span className="block text-[10px] font-bold text-subtle">새싹봇</span>
+              <span className="block font-bold">
+                {mascotSays.zone != null && <span className="text-critical">⚠ {state.sections[mascotSays.zone].label} · </span>}
+                {mascotSays.text}
+              </span>
+              {mascotSays.zone != null && <span className="mt-0.5 block text-[11px] font-bold text-brand-pressed">눌러서 보기 →</span>}
+              <span aria-hidden className="absolute -bottom-1.5 left-1/2 size-3 -translate-x-1/2 rotate-45 bg-card" />
+            </button>
+          ) : (
+            <span className="mb-1 block whitespace-nowrap rounded-full bg-dark/70 px-2 py-0.5 text-[10px] font-bold text-white">새싹봇 · 순찰 중</span>
+          )}
+        </div>
+      </div>
 
       {/* 수확 금액: 그 온실 위로 떠오르다 사라진다 (위치는 HarvestTagTracker가 매 프레임 옮긴다) */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
