@@ -15,11 +15,20 @@ class Effects:
         self.fertilizer_g = 0.0
 
 
+MODE_NAMES = {"auto": "자동", "on": "수동 켜기", "off": "수동 끄기"}
+
+
 class Device:
-    """장치 베이스. 환경에 주는 영향(contribute)과 자동 제어 판단(control)을 서브클래스가 정한다."""
+    """장치 베이스. 환경에 주는 영향(contribute)과 자동 제어 판단(auto_control)을 서브클래스가 정한다.
+    mode가 "auto"면 장치가 스스로 판단하고, "on"·"off"면 관리자가 정한 상태를 지킨다(manual_control)."""
     key = ""
     label = ""
     power_kw = 0.0          # 켜져 있을 때 소비 전력 (kW)
+    modes = ("auto", "on", "off")   # 이 장치가 받는 운전 방식
+
+    def __init__(self):
+        self.mode = "auto"
+        self.reason = ""    # 지금 상태가 된 이유 (화면에 보여 준다)
 
     @property
     def power(self) -> float:
@@ -29,7 +38,30 @@ class Device:
         """환경에 주는 영향을 fx에 더한다."""
 
     def control(self, r: Readings, profile: PlantProfile, ctx):
-        """측정값을 보고 상태를 정한다. ctx: closed(격리 중), hour, log"""
+        """한 단계의 제어. ctx: closed(격리 중), hour, outside(바깥 기온), log"""
+        if self.mode == "auto":
+            self.auto_control(r, profile, ctx)
+        else:
+            self.manual_control(ctx.log)
+
+    def auto_control(self, r: Readings, profile: PlantProfile, ctx):
+        """측정값을 보고 스스로 상태를 정한다."""
+
+    def manual_control(self, log):
+        """수동 운전: 관리자가 정한 상태(mode)로 맞춘다."""
+
+    def set_mode(self, mode: str, log) -> bool:
+        """운전 방식을 바꾼다. 바뀌었으면 True"""
+        if mode not in self.modes:
+            raise ValueError(f"{self.label}에는 '{mode}' 운전이 없습니다.")
+        if mode == self.mode:
+            return False
+        self.mode = mode
+        self.reason = "관리자가 자동으로 되돌림" if mode == "auto" else f"관리자 {MODE_NAMES[mode]}"
+        log(f"{self.label} {MODE_NAMES[mode]} (관리자)")
+        if mode != "auto":
+            self.manual_control(log)
+        return True
 
     def end_step(self):
         """한 단계가 끝날 때 1회성 상태를 비운다."""
@@ -41,6 +73,7 @@ class Device:
 class OnOffDevice(Device):
     """켜짐/꺼짐 장치. decide()가 (켤지, 이유)를 돌려주면 상태가 바뀔 때만 로그를 남긴다."""
     def __init__(self):
+        super().__init__()
         self.on = False
 
     @property
@@ -51,11 +84,14 @@ class OnOffDevice(Device):
         """(on, 이유)를 돌려준다. 상태를 유지하려면 None"""
         return None
 
-    def control(self, r, profile, ctx):
+    def auto_control(self, r, profile, ctx):
         decision = self.decide(r, profile, ctx)
         if decision and decision[0] != self.on:
-            self.on = decision[0]
-            ctx.log(f"{self.label} {'ON' if self.on else 'OFF'} ({decision[1]})")
+            self.on, self.reason = decision
+            ctx.log(f"{self.label} {'ON' if self.on else 'OFF'} ({self.reason})")
+
+    def manual_control(self, log):
+        self.on = self.mode == "on"
 
     def reset(self):
         self.on = False
@@ -73,7 +109,7 @@ class Heater(OnOffDevice):
         if r.temperature < lo:
             return True, f"{r.temperature:.1f}°C < {lo}°C"
         if r.temperature > lo + 1:
-            return False, f"{r.temperature:.1f}°C"
+            return False, f"{r.temperature:.1f}°C > {lo + 1}°C"
 
 
 class Cooler(OnOffDevice):
@@ -89,7 +125,7 @@ class Cooler(OnOffDevice):
         if r.temperature > hi:
             return True, f"{r.temperature:.1f}°C > {hi}°C"
         if r.temperature < hi - 1:
-            return False, f"{r.temperature:.1f}°C"
+            return False, f"{r.temperature:.1f}°C < {hi - 1}°C"
 
 
 class Dehumidifier(OnOffDevice):
@@ -104,7 +140,7 @@ class Dehumidifier(OnOffDevice):
         if r.humidity > hi:
             return True, f"{r.humidity:.1f}% > {hi}%"
         if r.humidity < hi - 5:
-            return False, f"{r.humidity:.0f}%"
+            return False, f"{r.humidity:.0f}% < {hi - 5}%"
 
 
 class Humidifier(OnOffDevice):
@@ -119,12 +155,16 @@ class Humidifier(OnOffDevice):
         if r.humidity < lo:
             return True, f"{r.humidity:.1f}% < {lo}%"
         if r.humidity > lo + 5:
-            return False, f"{r.humidity:.0f}%"
+            return False, f"{r.humidity:.0f}% > {lo + 5}%"
 
 
 class Fan(OnOffDevice):
-    """환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음)"""
+    """환기: 너무 덥거나 CO2가 범위를 벗어나면 켜고, 충분히 돌아오면 끔 (격리 중엔 닫음).
+    바깥 공기가 도움이 될 때만 연다 — 더워서 여는 건 바깥이 실내보다 시원할 때만,
+    CO2 부족으로 여는 건 바깥 기온이 적정 범위에서 OUTSIDE_MARGIN 이내일 때만."""
     key, label, power_kw = "fan", "환기팬", 0.3
+    # 환기 중엔 외기 교환이 0.95/h라 냉난방(±4°C/h)이 버티는 건 바깥이 적정 범위에서 약 5°C 벗어날 때까지
+    OUTSIDE_MARGIN = 5.0
 
     def contribute(self, fx):
         if self.on:
@@ -132,15 +172,21 @@ class Fan(OnOffDevice):
             fx.co2_exchange += 1.5
 
     def decide(self, r, p, ctx):
-        t_hi = p.temperature_range[1]
+        t_lo, t_hi = p.temperature_range
         c_lo, c_hi = p.co2_range
-        T, C = r.temperature, r.co2
+        T, C, out = r.temperature, r.co2, ctx.outside
+        cools = out < T                                   # 바깥이 더 시원해야 환기로 열을 뺄 수 있다
+        harsh = not (t_lo - self.OUTSIDE_MARGIN <= out <= t_hi + self.OUTSIDE_MARGIN)
         if ctx.closed:
             return False, "격리 중"
-        if T > t_hi + 2 or C > c_hi or C < c_lo:
+        if (T > t_hi + 2 and cools) or C > c_hi or (C < c_lo and not harsh):
             return True, f"{T:.1f}°C, CO2 {C:.0f}ppm"
-        if T < t_hi + 1 and c_lo + 80 < C < c_hi - 100:
-            return False, f"CO2 {C:.0f}ppm"
+        if (T < t_hi + 1 or not cools) and C < c_hi - 100 and (C > c_lo + 80 or harsh):
+            if T >= t_hi + 1:
+                return False, f"바깥 {out:.1f}°C가 더 더움, 냉방 우선"
+            if C <= c_lo + 80:
+                return False, f"바깥 {out:.1f}°C, {'보온' if out < t_lo else '냉방'} 우선"
+            return False, f"{T:.1f}°C, CO2 {C:.0f}ppm 정상"
 
 
 class GrowLight(Device):
@@ -150,6 +196,7 @@ class GrowLight(Device):
     LUX = 25000
 
     def __init__(self):
+        super().__init__()
         self.level = 0.0
 
     @property
@@ -159,30 +206,44 @@ class GrowLight(Device):
     def contribute(self, fx):
         fx.lux += self.level * self.LUX
 
-    def control(self, r, p, ctx):
+    def auto_control(self, r, p, ctx):
         natural = r.luminosity - self.level * self.LUX
-        if 6 <= ctx.hour < 22 and natural < p.min_luminosity:
+        daytime = 6 <= ctx.hour < 22
+        if daytime and natural < p.min_luminosity:
             level = min(1.0, (p.min_luminosity - natural) / self.LUX)
         else:
             level = 0.0
         if (level > 0) != (self.level > 0):
             ctx.log(f"{self.label} {'ON' if level > 0 else 'OFF'} (자연광 {natural:,.0f}lux)")
         self.level = round(level, 2)
+        self.reason = (f"자연광 {natural:,.0f}lux < 기준 {p.min_luminosity:,.0f}lux" if level
+                       else "밤 (6~22시에만 보충)" if not daytime else f"자연광 {natural:,.0f}lux로 충분")
+
+    def manual_control(self, log):
+        self.level = 1.0 if self.mode == "on" else 0.0
 
     def reset(self):
         self.level = 0.0
 
 
 class DosingDevice(Device):
-    """1회성으로 양을 투입하는 장치. amount는 이번 단계 투입량, total은 누적량"""
+    """1회성으로 양을 투입하는 장치. amount는 이번 단계 투입량, total은 누적량.
+    수동으로 켜 둘 수는 없고, 자동 투입을 멈추거나(off) 지금 한 번 주기(dose_now)만 한다."""
+    modes = ("auto", "off")
+
     def __init__(self):
+        super().__init__()
         self.amount = 0.0
         self.total = 0.0
 
-    def dose(self, amount, ctx, msg):
-        self.amount = amount
+    def dose(self, amount, log, msg):
+        self.amount += amount
         self.total += amount
-        ctx.log(msg)
+        self.reason = msg
+        log(msg)
+
+    def dose_now(self, r: Readings, p: PlantProfile, log):
+        """관리자가 지금 한 번 투입한다 (적정 범위 가운데까지, 이미 넘었으면 조금만)."""
 
     def end_step(self):
         self.amount = 0.0
@@ -198,12 +259,17 @@ class Irrigation(DosingDevice):
     def contribute(self, fx):
         fx.water_l += self.amount
 
-    def control(self, r, p, ctx):
+    def auto_control(self, r, p, ctx):
         lo, hi = p.soil_humidity_range
         if r.soil_humidity < lo:
             target = (lo + hi) / 2
             liters = (target - r.soil_humidity) / 2.0
-            self.dose(liters, ctx, f"급수 {liters:.1f}L (토양 습도 {r.soil_humidity:.0f}% → {target:.0f}%)")
+            self.dose(liters, ctx.log, f"급수 {liters:.1f}L (토양 습도 {r.soil_humidity:.0f}% → {target:.0f}%)")
+
+    def dose_now(self, r, p, log):
+        target = sum(p.soil_humidity_range) / 2
+        liters = max(1.0, (target - r.soil_humidity) / 2.0)
+        self.dose(liters, log, f"수동 급수 {liters:.1f}L (토양 습도 {r.soil_humidity:.0f}%)")
 
 
 class Fertilizer(DosingDevice):
@@ -213,12 +279,17 @@ class Fertilizer(DosingDevice):
     def contribute(self, fx):
         fx.fertilizer_g += self.amount
 
-    def control(self, r, p, ctx):
+    def auto_control(self, r, p, ctx):
         lo, hi = p.nutrient_range
         if r.nutrient < lo:
             target = (lo + hi) / 2
             grams = (target - r.nutrient) / 0.02
-            self.dose(grams, ctx, f"비료 {grams:.0f}g 살포 (EC {r.nutrient:.2f} → {target:.2f})")
+            self.dose(grams, ctx.log, f"비료 {grams:.0f}g 살포 (EC {r.nutrient:.2f} → {target:.2f})")
+
+    def dose_now(self, r, p, log):
+        target = sum(p.nutrient_range) / 2
+        grams = max(10.0, (target - r.nutrient) / 0.02)
+        self.dose(grams, log, f"수동 비료 {grams:.0f}g 살포 (EC {r.nutrient:.2f})")
 
 
 def _device_attr(key, attr):

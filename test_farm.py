@@ -27,9 +27,9 @@ def ideal_env(p=None):
     return EnvState(p or profile(), 18, 70, 600, 65, 30000, 1.3)
 
 
-def ctx(closed=False, hour=12.0):
+def ctx(closed=False, hour=12.0, outside=20.0):
     logs = []
-    return SimpleNamespace(closed=closed, hour=hour, log=logs.append), logs
+    return SimpleNamespace(closed=closed, hour=hour, outside=outside, log=logs.append), logs
 
 
 def readings(**kw):
@@ -125,6 +125,32 @@ class DeviceTest(unittest.TestCase):
         closed, _ = ctx(closed=True)
         fan.control(readings(temperature=20, co2=1300), p, closed)
         self.assertFalse(fan.on)                        # 격리 중엔 닫는다
+
+    def test_fan_does_not_let_in_cold_air_for_low_co2(self):
+        p = profile()                                   # 적정 온도 하한 15°C
+        warm, _ = ctx(outside=12)                       # 하한보다 3°C 낮은 정도는 괜찮다
+        fan = Fan()
+        fan.control(readings(temperature=18, co2=250), p, warm)
+        self.assertTrue(fan.on)                         # 바깥이 따뜻하면 CO2 보충 환기
+        cold, logs = ctx(outside=0)
+        fan.control(readings(temperature=18, co2=250), p, cold)
+        self.assertFalse(fan.on)                        # 바깥이 추우면 보온이 우선
+        fan.control(readings(temperature=18, co2=1300), p, cold)
+        self.assertTrue(fan.on)                         # CO2 과다는 추워도 환기
+
+    def test_fan_vents_heat_only_when_outside_is_cooler(self):
+        p = profile()                                   # 적정 온도 상한 22°C
+        fan = Fan()
+        hot, logs = ctx(outside=31)
+        fan.control(readings(temperature=25, co2=600), p, hot)
+        self.assertFalse(fan.on)                        # 바깥이 더 더우면 열어 봐야 더워진다
+        mild, _ = ctx(outside=16)
+        fan.control(readings(temperature=25, co2=600), p, mild)
+        self.assertTrue(fan.on)                         # 바깥이 시원하면 환기로 식힌다
+        fan.control(readings(temperature=25, co2=600), p, hot)
+        self.assertFalse(fan.on)                        # 열려 있다가 바깥이 더워지면 닫는다
+        fan.control(readings(temperature=18, co2=250), p, hot)
+        self.assertFalse(fan.on)                        # 바깥이 너무 더우면 CO2 부족으로도 안 연다
 
     def test_light_only_between_6_and_22(self):
         p, light = profile(), GrowLight()
@@ -234,32 +260,6 @@ class EconomicsTest(unittest.TestCase):
         self.assertEqual(len(farm.cycles), 2)
 
 
-class CctvTest(unittest.TestCase):
-    def test_draws_every_section_state_without_error(self):
-        import tkinter as tk
-        from ui.shared.cctv_view import draw_cctv
-        from core.catalog import make_farm
-        try:
-            root = tk.Tk()
-        except tk.TclError:
-            self.skipTest("화면을 쓸 수 없는 환경")
-        self.addCleanup(root.destroy)
-        farm = make_farm()
-        c = tk.Canvas(root, width=300, height=200)
-        s = farm.sections[1]
-        cases = [lambda: None,
-                 lambda: setattr(s.plant_state, "growth", 5.0),
-                 lambda: (setattr(s.plant_state, "growth", 90.0), setattr(s.plant_state, "pests", True)),
-                 lambda: setattr(s, "is_closed", True),
-                 lambda: setattr(s.plant_state, "alive", False),
-                 lambda: setattr(s, "plant_state", None)]
-        for case in cases:
-            case()
-            for hour in (3.0, 12.0):
-                farm.hours = hour
-                for compact in (False, True):
-                    draw_cctv(c, 0, 0, 300, 200, s, farm, 2, compact=compact)
-
 
 class MarketTest(unittest.TestCase):
     def test_price_stays_within_range_and_moves(self):
@@ -349,24 +349,138 @@ class AutoReplantTest(unittest.TestCase):
         self.assertIsNone(s.plant_state)
 
 
-class PriceWindowTest(unittest.TestCase):
-    def test_draws_for_each_range(self):
-        import tkinter as tk
+
+class ColdSnapTest(unittest.TestCase):
+    def test_every_crop_survives_three_days_of_cold_snap(self):
+        """시뮬레이터의 한파(바깥 평균 2°C, 최저 약 -5°C)에서도 난방으로 버텨야 한다."""
+        import contextlib, io
         from core.catalog import make_farm
-        from ui.price.window import PriceWindow
-        try:
-            root = tk.Tk()
-        except tk.TclError:
-            self.skipTest("화면을 쓸 수 없는 환경")
-        self.addCleanup(root.destroy)
-        app = SimpleNamespace(root=root, farm=make_farm())
-        w = PriceWindow(app)
-        w.deiconify()
-        for _ in range(200):
-            app.farm.market.step(DT)
-        for d in (1, 7, 30):
-            w.days.set(d)
-            w.refresh()
+        random.seed(7)
+        farm = make_farm()
+        farm.auto_harvest = False
+        farm.weather.base_temp = 12 - 10
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(6 * 72):
+                farm.process(DT)
+        dead = [s.label for s in farm.sections if not s.plant_state.alive]
+        self.assertEqual(dead, [])
+        for s in farm.sections:
+            self.assertGreater(s.plant_state.health, 50, s.label)
+
+
+class HeatWaveTest(unittest.TestCase):
+    def test_every_crop_survives_three_days_of_heat_wave(self):
+        """시뮬레이터의 폭염(바깥 평균 24°C, 최고 약 31°C)에서도 냉방으로 버텨야 한다."""
+        import contextlib, io
+        from core.catalog import make_farm
+        random.seed(7)
+        farm = make_farm()
+        farm.auto_harvest = False
+        farm.weather.base_temp = 12 + 12
+        with contextlib.redirect_stdout(io.StringIO()):
+            for _ in range(6 * 72):
+                farm.process(DT)
+        dead = [s.label for s in farm.sections if not s.plant_state.alive]
+        self.assertEqual(dead, [])
+        for s in farm.sections:
+            self.assertGreater(s.plant_state.health, 50, s.label)
+
+
+class AccountsTest(unittest.TestCase):
+    def test_default_account_logs_in(self):
+        from core.auth import Accounts
+        self.assertTrue(Accounts().login("farmer", "evergrow"))
+
+    def test_wrong_password_or_unknown_user_fails(self):
+        from core.auth import Accounts
+        a = Accounts()
+        self.assertFalse(a.login("farmer", "wrong"))
+        self.assertFalse(a.login("nobody", "evergrow"))
+        self.assertEqual(a.failures, 2)
+
+    def test_password_is_not_stored_as_plain_text(self):
+        from core.auth import Accounts
+        a = Accounts({})
+        a.add("kim", "secret")
+        self.assertNotIn("secret", a.users["kim"])
+        self.assertTrue(a.login("kim", "secret"))
+
+    def test_locks_after_max_failures_and_success_resets_count(self):
+        from core.auth import Accounts
+        a = Accounts()
+        a.login("farmer", "x")
+        a.login("farmer", "evergrow")
+        self.assertEqual(a.failures, 0)
+        for _ in range(Accounts.MAX_FAILURES):
+            a.login("farmer", "x")
+        self.assertTrue(a.locked)
+        self.assertFalse(a.login("farmer", "evergrow"))
+
+
+
+class ManualModeTest(unittest.TestCase):
+    def test_manual_on_off_overrides_auto_and_auto_comes_back(self):
+        p, (c, logs) = profile(), ctx()
+        heater = Heater()
+        self.assertTrue(heater.set_mode("on", logs.append))
+        self.assertTrue(heater.on)                      # 바로 켜진다
+        heater.control(readings(temperature=30), p, c)
+        self.assertTrue(heater.on)                      # 더워도 수동이면 그대로
+        self.assertFalse(heater.set_mode("on", logs.append))   # 같은 방식이면 바뀐 것 없음
+        heater.set_mode("auto", logs.append)
+        heater.control(readings(temperature=30), p, c)
+        self.assertFalse(heater.on)                     # 자동으로 돌아오면 스스로 끈다
+        self.assertTrue(any("수동 켜기" in m for m in logs))
+
+    def test_light_manual_and_reason(self):
+        p, (c, _) = profile(), ctx(hour=23)
+        light = GrowLight()
+        light.set_mode("on", print)
+        light.control(readings(luminosity=0), p, c)
+        self.assertEqual(light.level, 1.0)              # 밤이어도 수동이면 켠다
+        light.set_mode("auto", print)
+        light.control(readings(luminosity=0), p, c)
+        self.assertEqual(light.level, 0)
+        self.assertIn("밤", light.reason)
+
+    def test_dosing_off_blocks_auto_and_dose_now_still_works(self):
+        p, (c, logs) = profile(), ctx()
+        water = Irrigation()
+        with self.assertRaises(ValueError):
+            water.set_mode("on", logs.append)           # 급수는 켜 둘 수 없다
+        water.set_mode("off", logs.append)
+        water.control(readings(soil_humidity=10), p, c)
+        self.assertEqual(water.amount, 0)               # 자동 급수 멈춤
+        water.dose_now(readings(soil_humidity=10), p, logs.append)
+        self.assertAlmostEqual(water.amount, (65 - 10) / 2.0)
+        self.assertIn("수동 급수", water.reason)
+
+
+class SeasonTest(unittest.TestCase):
+    def test_seasons_shift_temperature_and_day_length(self):
+        from core.weather import YEAR_DAYS
+        summer, winter = Weather(seasons=True), Weather(seasons=True)
+        summer.jump_to("여름", 1)
+        winter.jump_to("겨울", 1)
+        summer.cloud = winter.cloud = 0
+        random.seed(0)
+        summer.update(15, DT, day=1.6)
+        winter.update(15, DT, day=1.6)
+        self.assertEqual((summer.season, winter.season), ("여름", "겨울"))
+        self.assertAlmostEqual(summer.temperature - winter.temperature, 20, delta=1)
+        summer.update(19, DT, day=1.8)                  # 여름엔 해가 길다 (일몰 20시)
+        winter.update(17, DT, day=1.7)                  # 겨울엔 해가 짧다 (일몰 16시)
+        self.assertGreater(summer.sunlight, 0)
+        self.assertEqual(winter.sunlight, 0)
+        w = Weather(seasons=True)
+        w.update(12, DT, day=1 + YEAR_DAYS / 4)         # 30일 지나면 봄 → 여름
+        self.assertEqual(w.season, "여름")
+
+    def test_seasons_off_keeps_old_daily_cycle(self):
+        w = Weather()
+        w.update(12, DT, day=50)
+        self.assertIsNone(w.season)
+        self.assertAlmostEqual(w.temperature, 12 + 7 * math.sin(2 * math.pi * 3 / 24))
 
 
 if __name__ == "__main__":

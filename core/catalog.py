@@ -3,6 +3,7 @@ from core.environment import EnvState
 from core.farm import Farm
 from core.plant import PlantProfile, PlantState, LEAFY_STAGES, FRUIT_STAGES
 from core.section import FarmSection
+from core.weather import Weather
 
 DT = 1 / 6              # 한 단계 = 10분
 
@@ -30,4 +31,5 @@ def make_farm():
     for i, (name, temp, _, soil, hum, ec, *_) in enumerate(PROFILES):
         env = EnvState(make_profile(name), sum(temp) / 2, sum(hum) / 2, 500, sum(soil) / 2, 0, sum(ec) / 2)
         sections.append(FarmSection(env, PlantState(True, False), False, name=f"구역{i + 1}"))
-    return Farm(sections, start_hour=6, profiles={p[0]: make_profile(p[0]) for p in PROFILES})
+    return Farm(sections, start_hour=6, weather=Weather(seasons=True),
+                profiles={p[0]: make_profile(p[0]) for p in PROFILES})

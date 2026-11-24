@@ -52,7 +52,7 @@ class Farm:
 
     def process(self, dt: float = 1 / 6):
         self.hours += dt
-        self.weather.update(self.hour, dt)
+        self.weather.update(self.hour, dt, day=self.hours / 24 + 1)
         self.market.step(dt)
         for section in self.sections:
             section.process(self.weather, self.hour, dt)
